@@ -74,6 +74,71 @@ class ClaudeScienceUrlTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), ccscience_sync.tr("zh", "science_url_missing"))
 
 
+class CSSwitchBridgeTests(unittest.TestCase):
+    def write_csswitch_config(self, root: pathlib.Path, model: str = "glm-5.2") -> None:
+        path = root / ".csswitch" / "config.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            ccscience_sync.json.dumps(
+                {
+                    "schema_version": 2,
+                    "mode": "proxy",
+                    "active_id": "p1",
+                    "proxy_port": 18991,
+                    "secret": "secret123",
+                    "profiles": [
+                        {
+                            "id": "p1",
+                            "name": "GLM",
+                            "template_id": "glm",
+                            "model": model,
+                            "api_key": "hidden",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_prefers_csswitch_active_profile_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".claude").mkdir()
+            (root / ".claude" / "settings.json").write_text('{"model":"opus[1m]"}', encoding="utf-8")
+            self.write_csswitch_config(root)
+
+            with mock.patch.object(ccscience_sync, "home", return_value=root):
+                payload = ccscience_sync.current_model_payload()
+
+        self.assertEqual(payload["source"], "csswitch-profile")
+        self.assertEqual(payload["source_model"], "glm-5.2")
+        self.assertEqual(payload["model"], "glm-5.2")
+
+    def test_launch_environment_uses_running_csswitch_proxy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self.write_csswitch_config(root)
+            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.object(
+                ccscience_sync, "csswitch_proxy_health", return_value=True
+            ):
+                env, bridge = ccscience_sync.science_launch_environment()
+
+        self.assertTrue(bridge["proxy_running"])
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18991/secret123")
+
+    def test_launch_environment_skips_stopped_csswitch_proxy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self.write_csswitch_config(root)
+            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.object(
+                ccscience_sync, "csswitch_proxy_health", return_value=False
+            ):
+                env, bridge = ccscience_sync.science_launch_environment()
+
+        self.assertIsNone(env)
+        self.assertFalse(bridge["proxy_running"])
+
+
 class RuntimePatchTests(unittest.TestCase):
     def test_patch_and_unpatch_index(self):
         html = (

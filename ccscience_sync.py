@@ -33,7 +33,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -133,6 +133,8 @@ TEXT = {
         "gui_error": "Could not start GUI: {error}",
         "gui_fallback": "Run 'ccscience-sync install' from a terminal instead.",
         "opened_science": "Opened a fresh Claude Science link:\n{url}\n\nIf Claude Science asks for your Claude account, please sign in there. ccscience-sync cannot bypass account login.",
+        "bridge_active": "CSSwitch bridge: active ({profile}, {model})",
+        "bridge_inactive": "CSSwitch bridge: not active. Claude Science will use its normal connection.",
         "science_cli_missing": "Could not find the claude-science command. Open Claude Science from its own app, or add claude-science to PATH.",
         "science_url_missing": "Could not get a Claude Science URL from the claude-science command.",
     },
@@ -160,6 +162,8 @@ TEXT = {
         "gui_error": "无法启动图形界面：{error}",
         "gui_fallback": "请改用终端运行 ccscience-sync install。",
         "opened_science": "已打开一个新的 Claude Science 一次性链接：\n{url}\n\n如果 Claude Science 要求登录 Claude 账号，请在 Claude Science 中正常登录。ccscience-sync 不能绕过账号登录。",
+        "bridge_active": "CSSwitch 桥接：已启用（{profile}，{model}）",
+        "bridge_inactive": "CSSwitch 桥接：未启用。本次会按 Claude Science 默认连接启动。",
         "science_cli_missing": "找不到 claude-science 命令。请从 Claude Science 自己的 App 打开，或把 claude-science 加入 PATH。",
         "science_url_missing": "无法从 claude-science 命令获取 Claude Science 链接。",
     },
@@ -226,6 +230,10 @@ def science_data_dir() -> pathlib.Path:
 
 def user_config_path() -> pathlib.Path:
     return home() / ".ccscience-sync.json"
+
+
+def csswitch_config_path() -> pathlib.Path:
+    return home() / ".csswitch" / "config.json"
 
 
 def launch_agent_path(label: str = MACOS_LABEL) -> pathlib.Path:
@@ -325,10 +333,10 @@ def claude_science_commands() -> list[pathlib.Path]:
     return [path for path in _unique_paths(candidates) if path.exists()]
 
 
-def fresh_claude_science_url(lang: str = "en") -> str:
+def fresh_claude_science_url(lang: str = "en", env: dict[str, str] | None = None) -> str:
     commands = claude_science_commands()
     for command in commands:
-        result = run([str(command), "url"])
+        result = run([str(command), "url"], env=env)
         output = f"{result.stdout}\n{result.stderr}"
         match = re.search(r"https?://[^\s]+", output)
         if result.returncode == 0 and match:
@@ -338,10 +346,11 @@ def fresh_claude_science_url(lang: str = "en") -> str:
     raise SystemExit(tr(lang, "science_cli_missing"))
 
 
-def open_claude_science(lang: str = "en") -> str:
-    url = fresh_claude_science_url(lang)
+def open_claude_science(lang: str = "en") -> tuple[str, dict[str, Any]]:
+    env, bridge = science_launch_environment()
+    url = fresh_claude_science_url(lang, env=env)
     webbrowser.open(url)
-    return url
+    return url, bridge
 
 
 def load_json(path: pathlib.Path, default: Any) -> Any:
@@ -358,6 +367,87 @@ def load_user_config() -> dict[str, Any]:
     if not isinstance(data, dict):
         raise SystemExit(f"{user_config_path()} must contain a JSON object")
     return data
+
+
+def load_csswitch_config() -> dict[str, Any]:
+    try:
+        data = json.loads(csswitch_config_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def csswitch_active_profile(config: dict[str, Any]) -> dict[str, Any] | None:
+    active_id = str(config.get("active_id") or "")
+    profiles = config.get("profiles")
+    if not active_id or not isinstance(profiles, list):
+        return None
+    for profile in profiles:
+        if isinstance(profile, dict) and profile.get("id") == active_id:
+            return profile
+    return None
+
+
+def _int_port(value: Any, default: int) -> int:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return default
+    return port if 0 < port < 65536 else default
+
+
+def csswitch_proxy_url(config: dict[str, Any]) -> str | None:
+    secret = str(config.get("secret") or "")
+    if not secret:
+        return None
+    port = _int_port(config.get("proxy_port"), 18991)
+    return f"http://127.0.0.1:{port}/{secret}"
+
+
+def csswitch_proxy_health(config: dict[str, Any]) -> bool:
+    url = csswitch_proxy_url(config)
+    if not url:
+        return False
+    try:
+        with urllib.request.urlopen(f"{url}/health", timeout=0.6) as res:
+            return 200 <= res.status < 300
+    except Exception:
+        return False
+
+
+def csswitch_bridge_payload(check_health: bool = True) -> dict[str, Any]:
+    config = load_csswitch_config()
+    profile = csswitch_active_profile(config)
+    mode = str(config.get("mode") or "")
+    enabled = mode == "proxy" and profile is not None
+    port = _int_port(config.get("proxy_port"), 18991)
+    secret = str(config.get("secret") or "")
+    model = str(profile.get("model") or "").strip() if profile else ""
+    payload = {
+        "enabled": enabled,
+        "mode": mode or "missing",
+        "profile": str(profile.get("name") or profile.get("template_id") or "") if profile else "",
+        "template_id": str(profile.get("template_id") or "") if profile else "",
+        "model": model,
+        "proxy_port": port,
+        "proxy_url": f"http://127.0.0.1:{port}/****" if secret else "",
+        "proxy_running": False,
+        "config_path": str(csswitch_config_path()),
+    }
+    if enabled and check_health:
+        payload["proxy_running"] = csswitch_proxy_health(config)
+    return payload
+
+
+def science_launch_environment() -> tuple[dict[str, str] | None, dict[str, Any]]:
+    bridge = csswitch_bridge_payload(check_health=True)
+    config = load_csswitch_config()
+    proxy_url = csswitch_proxy_url(config)
+    if bridge.get("enabled") and bridge.get("proxy_running") and proxy_url:
+        env = dict(os.environ)
+        env["ANTHROPIC_BASE_URL"] = proxy_url
+        return env, bridge
+    return None, bridge
 
 
 def strip_context_suffix(model: str) -> str:
@@ -420,18 +510,26 @@ def current_model_payload() -> dict[str, Any]:
     if not isinstance(settings, dict):
         settings = {}
     config = load_user_config()
+    bridge = csswitch_bridge_payload(check_health=False)
     source_model = settings.get("model")
     source_effort = settings.get("effortLevel") or settings.get("effort")
-    target_model = map_model(str(source_model) if source_model else None, config)
+    source = "claude-settings"
+    if bridge.get("enabled") and bridge.get("model"):
+        source = "csswitch-profile"
+        source_model = bridge.get("model")
+        target_model = str(bridge.get("model") or "")
+    else:
+        target_model = map_model(str(source_model) if source_model else None, config)
     target_effort = map_effort(str(source_effort) if source_effort else None)
     return {
         "ok": bool(target_model),
-        "source": "claude-settings",
+        "source": source,
         "source_model": source_model,
         "model": target_model,
         "source_effort": source_effort,
         "effort": target_effort,
         "settings_path": str(claude_settings_path()),
+        "csswitch": bridge,
         "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
 
@@ -654,8 +752,8 @@ def serve(port: int) -> None:
     httpd.serve_forever()
 
 
-def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+def run(cmd: list[str], check: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check, env=env)
 
 
 def helper_command(port: int, background: bool = False) -> list[str]:
@@ -820,9 +918,16 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     payload = current_model_payload()
+    bridge = csswitch_bridge_payload(check_health=True)
     print(f"source model: {payload.get('source_model')}")
     print(f"science model: {payload.get('model')}")
     print(f"effort: {payload.get('effort')}")
+    if bridge.get("enabled"):
+        print(f"csswitch profile: {bridge.get('profile') or bridge.get('template_id') or 'unknown'}")
+        print(f"csswitch model: {bridge.get('model') or '(uses Claude Code model)'}")
+        print(f"csswitch proxy: {'running' if bridge.get('proxy_running') else 'not-running'} ({bridge.get('proxy_url') or bridge.get('config_path')})")
+    else:
+        print(f"csswitch proxy: disabled ({bridge.get('mode')})")
     print(f"helper: {helper_status(args.port)}")
     print(f"autostart: {autostart_status()}")
     indexes = runtime_indexes()
@@ -836,7 +941,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_open_science(args: argparse.Namespace) -> int:
     lang = detect_language()
-    url = fresh_claude_science_url(lang)
+    env, _bridge = science_launch_environment()
+    url = fresh_claude_science_url(lang, env=env)
     if args.print_only:
         print(url)
     else:
@@ -871,6 +977,9 @@ def localize_cli_output(text: str, lang: str) -> str:
     replacements = [
         ("source model:", "来源模型："),
         ("science model:", "Claude Science 模型："),
+        ("csswitch profile:", "CSSwitch 配置："),
+        ("csswitch model:", "CSSwitch 模型："),
+        ("csswitch proxy:", "CSSwitch 代理："),
         ("effort:", "推理强度："),
         ("helper:", "后台服务："),
         ("autostart:", "自启动："),
@@ -881,6 +990,9 @@ def localize_cli_output(text: str, lang: str) -> str:
         ("installed:", "已安装："),
         ("removed:", "已移除："),
         ("not-running", "未运行"),
+        ("disabled", "未启用"),
+        ("unknown", "未知"),
+        ("(uses Claude Code model)", "（使用 Claude Code 模型）"),
         ("not-installed", "未安装"),
         ("running", "运行中"),
         ("installed", "已安装"),
@@ -907,7 +1019,12 @@ def gui_status(lang: str) -> tuple[int, str]:
 
 def gui_open_science(lang: str) -> tuple[int, str]:
     def action() -> int:
-        url = open_claude_science(lang)
+        url, bridge = open_claude_science(lang)
+        if bridge.get("enabled") and bridge.get("proxy_running"):
+            model = bridge.get("model") or tr(lang, "no_output")
+            print(tr(lang, "bridge_active", profile=bridge.get("profile") or "CSSwitch", model=model))
+        else:
+            print(tr(lang, "bridge_inactive"))
         print(tr(lang, "opened_science", url=url))
         return 0
 

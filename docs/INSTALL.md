@@ -13,6 +13,10 @@ Use `Open Claude Science` in the app to generate a fresh local Claude Science
 URL. This helps avoid expired one-time nonce links, but it does not bypass
 Claude account login.
 
+If CSSwitch is already running a third-party local proxy, `Open Claude Science`
+passes that proxy to Claude Science through `ANTHROPIC_BASE_URL`. The app masks
+the proxy secret in status output and does not use CSSwitch API key values.
+
 ## From Source
 
 ```sh
@@ -49,6 +53,9 @@ folder after installation.
 
 Users do not need to reinstall after changing models in ccswitch or Claude
 Code. The local helper reads the latest model for new Claude Science sessions.
+
+For CSSwitch third-party profiles, users should keep the CSSwitch proxy running,
+then open Claude Science from `ccscience-sync`.
 
 ## Troubleshooting
 

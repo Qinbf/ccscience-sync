@@ -2,8 +2,8 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-Use the same model in Claude Science that you selected in ccswitch or Claude
-Code.
+Use the same model in Claude Science that you selected in ccswitch, Claude
+Code, or CSSwitch.
 
 Most users do not need Python, Terminal, PowerShell, or source code. Download
 the app, open it, and click install.
@@ -16,7 +16,7 @@ other systems.
 Before installing:
 
 1. Open Claude Science once, then close it.
-2. Make sure ccswitch or Claude Code already has the model you want selected.
+2. Make sure ccswitch, Claude Code, or CSSwitch already has the model you want selected.
 
 ### macOS
 
@@ -51,6 +51,13 @@ helper: running (...)
 runtime patch: installed (...)
 ```
 
+If you use a CSSwitch third-party model, you should also see:
+
+```text
+csswitch proxy: running (http://127.0.0.1:18991/****)
+csswitch model: ...
+```
+
 After that, use ccswitch or Claude Code as usual. When you start a new Claude
 Science session, it should use the same model.
 
@@ -61,6 +68,13 @@ After installation, there is nothing else to keep open.
 1. Change model in ccswitch or Claude Code.
 2. Start a new Claude Science session.
 3. Claude Science uses the synced model automatically.
+
+If you use a CSSwitch third-party model:
+
+1. Select the third-party profile in CSSwitch and keep its local proxy running.
+2. Click `Open Claude Science` in `ccscience-sync`.
+3. If Claude Science asks you to sign in, sign in normally. After that, model
+   inference goes through the CSSwitch local proxy.
 
 You do not need to reinstall after changing models in ccswitch or Claude Code.
 The helper reads the latest model automatically when a new Claude Science
@@ -107,12 +121,18 @@ certificates.
 `~/.claude/settings.json`, maps it to a Claude Science model ID, and updates
 Claude Science's new-session model locally.
 
+If it detects an active CSSwitch third-party profile in `~/.csswitch/config.json`
+and the CSSwitch local proxy is running, `Open Claude Science` starts
+`claude-science` with `ANTHROPIC_BASE_URL` pointing to that local proxy. The
+proxy secret is masked in status output.
+
 It does not rely on a fixed 5-second polling loop. Claude Science refreshes
 the model when the page becomes active, when you interact with it, and right
 before a new-session request is sent.
 
-It does not read, store, print, upload, or document API keys, passwords, or
-tokens.
+It does not store, print, upload, or document API keys, passwords, or tokens.
+When bridging CSSwitch, it uses only the profile name, model, port, and local
+proxy secret; it does not use the API key field from the CSSwitch config.
 
 ## Advanced Usage From Source
 

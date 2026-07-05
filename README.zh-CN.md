@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-让 Claude Science 自动使用你在 ccswitch 或 Claude Code 里选择的模型。
+让 Claude Science 自动使用你在 ccswitch / Claude Code / CSSwitch 里选择的模型。
 
 普通用户不需要安装 Python，也不需要打开终端或 PowerShell。下载 App/EXE，
 打开后点一下安装即可。
@@ -14,7 +14,7 @@
 安装前先确认：
 
 1. Claude Science 至少打开过一次，然后可以先关掉。
-2. ccswitch 或 Claude Code 里已经选好了你想用的模型。
+2. ccswitch、Claude Code 或 CSSwitch 里已经选好了你想用的模型。
 
 ### macOS
 
@@ -49,6 +49,13 @@
 运行时补丁：已安装 (...)
 ```
 
+如果你使用 CSSwitch 的第三方模型，还应该看到：
+
+```text
+CSSSwitch 代理：运行中 (http://127.0.0.1:18991/****)
+CSSSwitch 模型：...
+```
+
 之后正常使用 ccswitch 或 Claude Code 切模型即可。你新建 Claude Science
 会话时，它会自动使用同步过来的模型。
 
@@ -59,6 +66,12 @@
 1. 在 ccswitch 或 Claude Code 里切换模型。
 2. 新建 Claude Science 会话。
 3. Claude Science 会自动使用同步后的模型。
+
+如果你用的是 CSSwitch 第三方模型：
+
+1. 先在 CSSwitch 里选择第三方配置，并让它的本地代理保持运行。
+2. 在 `ccscience-sync` 里点击 `打开 Claude Science`。
+3. 如果 Claude Science 要求登录，请正常登录；登录后推理请求会走 CSSwitch 的本地代理。
 
 ccswitch 或 Claude Code 里切换模型后，不需要重装 `ccscience-sync`。新建
 Claude Science 会话时，它会自动读取最新模型。
@@ -101,10 +114,17 @@ ccswitch 或 Claude Code 切换模型后，不需要重装 `ccscience-sync`。
 `~/.claude/settings.json` 里的当前模型，把它转换成 Claude Science 使用的
 模型 ID，然后在本机把 Claude Science 新会话的模型同步过去。
 
+如果检测到 `~/.csswitch/config.json` 里有正在使用的 CSSwitch 第三方 profile，
+并且 CSSwitch 的本地代理正在运行，`打开 Claude Science` 会给
+`claude-science` 进程设置 `ANTHROPIC_BASE_URL`，让 Claude Science 的推理请求
+走 CSSwitch 代理。代理地址里的 secret 只用于本机连接，不会打印明文。
+
 它不是固定每 5 秒傻刷。Claude Science 页面重新变为活跃、用户点击或按键、
 以及新建会话请求发出前，都会刷新一次最新模型。
 
-它不会读取、保存、打印、上传或在文档中记录 API key、密码、token 或其他凭据。
+它不会保存、打印、上传或在文档中记录 API key、密码、token 或其他凭据。
+桥接 CSSwitch 时，它只使用 profile 名称、模型、端口和本地代理 secret，不使用
+CSSwitch 配置里的 API key 字段。
 
 ## 从源码运行
 
