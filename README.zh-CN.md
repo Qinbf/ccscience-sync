@@ -56,7 +56,11 @@ runtime patch: installed (...)
 2. 新建 Claude Science 会话。
 3. Claude Science 会自动使用同步后的模型。
 
-如果 Claude Science 更新了，再打开 `ccscience-sync`，点击 `Install / Update`。
+ccswitch 或 Claude Code 里切换模型后，不需要重装 `ccscience-sync`。新建
+Claude Science 会话时，它会自动读取最新模型。
+
+只有 Claude Science 本身更新了，或者状态里没有看到
+`runtime patch: installed`，才需要再次点击 `Install / Update`。
 
 ## 卸载
 
@@ -71,6 +75,8 @@ runtime patch: installed (...)
 ### 模型没有立刻变化
 
 请新建一个 Claude Science 会话。已经打开的旧会话可能会继续使用创建时的模型。
+
+ccswitch 或 Claude Code 切换模型后，不需要重装 `ccscience-sync`。
 
 ### 系统提示应用有风险或无法验证
 

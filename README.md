@@ -57,8 +57,12 @@ After installation, there is nothing else to keep open.
 2. Start a new Claude Science session.
 3. Claude Science uses the synced model automatically.
 
-If Claude Science updates, open `ccscience-sync` again and click
-`Install / Update`.
+You do not need to reinstall after changing models in ccswitch or Claude Code.
+The helper reads the latest model automatically when a new Claude Science
+session starts.
+
+Only run `Install / Update` again if Claude Science itself updates or status
+does not show `runtime patch: installed`.
 
 ## Uninstall
 
@@ -74,6 +78,8 @@ Open Claude Science once, close it, then click `Install / Update` again.
 
 Start a new Claude Science session. Existing sessions may keep the model they
 were created with.
+
+You do not need to reinstall `ccscience-sync` after changing models.
 
 ### The app is blocked by the operating system
 

@@ -41,6 +41,11 @@ class RuntimePatchTests(unittest.TestCase):
             self.assertEqual(ccscience_sync.unpatch_index(path), "removed")
             self.assertNotIn(ccscience_sync.MARKER_START, path.read_text(encoding="utf-8"))
 
+    def test_injection_refreshes_before_request(self):
+        script = ccscience_sync.injection_script(19783)
+        self.assertIn("originalFetch.call(window, endpoint", script)
+        self.assertIn("patchRequest(input, init)", script)
+
 
 if __name__ == "__main__":
     unittest.main()

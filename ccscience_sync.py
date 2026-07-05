@@ -31,7 +31,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -342,6 +342,19 @@ def injection_script(port: int) -> str:
           catch (e) {{ return currentEffort; }}
         }}
 
+        function patchRequest(input, init) {{
+          var body = init && init.body;
+          var model = modelFromStorage();
+          if (model && typeof body === "string" && body.charAt(0) === "{{") {{
+            var parsed = JSON.parse(body);
+            parsed.model = model;
+            var effort = effortFromStorage();
+            if (effort) parsed.effort = effort;
+            return Object.assign({{}}, init, {{ body: JSON.stringify(parsed) }});
+          }}
+          return init;
+        }}
+
         function shouldPatch(url) {{
           try {{
             var u = new URL(url, location.href);
@@ -360,20 +373,21 @@ def injection_script(port: int) -> str:
         if (originalFetch && !originalFetch.__ccscienceSyncPatched) {{
           var patchedFetch = function (input, init) {{
             try {{
+              var self = this;
               var url = typeof input === "string" ? input : input && input.url;
               var method = (init && init.method) ||
                 (input && input.method) ||
                 "GET";
               if (url && String(method).toUpperCase() !== "GET" && shouldPatch(url)) {{
-                var body = init && init.body;
-                var model = modelFromStorage();
-                if (model && typeof body === "string" && body.charAt(0) === "{{") {{
-                  var parsed = JSON.parse(body);
-                  parsed.model = model;
-                  var effort = effortFromStorage();
-                  if (effort) parsed.effort = effort;
-                  init = Object.assign({{}}, init, {{ body: JSON.stringify(parsed) }});
-                }}
+                return originalFetch.call(window, endpoint, {{ cache: "no-store" }})
+                  .then(function (r) {{ return r.ok ? r.json() : null; }})
+                  .then(function (payload) {{
+                    apply(payload);
+                    return originalFetch.call(self, input, patchRequest(input, init));
+                  }})
+                  .catch(function () {{
+                    return originalFetch.call(self, input, patchRequest(input, init));
+                  }});
               }}
             }} catch (e) {{}}
             return originalFetch.call(this, input, init);
@@ -699,7 +713,7 @@ def launch_gui() -> int:
 
     subtitle = ttk.Label(
         root,
-        text="Sync the ccswitch / Claude Code model into new Claude Science sessions.",
+        text="Install once. New Claude Science sessions will use the latest model selected in ccswitch / Claude Code.",
         wraplength=660,
     )
     subtitle.pack(anchor="w", padx=18, pady=(0, 14))
@@ -740,7 +754,10 @@ def launch_gui() -> int:
                 if code == 0:
                     status_var.set(f"{label} finished")
                     if label == "Install":
-                        messagebox.showinfo("ccscience-sync", "Installed. Start a new Claude Science session.")
+                        messagebox.showinfo(
+                            "ccscience-sync",
+                            "Installed. You do not need to reinstall when switching models.",
+                        )
                 else:
                     status_var.set(f"{label} failed")
                     messagebox.showerror("ccscience-sync", text or f"{label} failed")
@@ -758,7 +775,11 @@ def launch_gui() -> int:
         button.pack(side="left", padx=(0, 8))
         buttons.append(button)
 
-    set_output("Click Install / Update to set up ccscience-sync.\n\nAfter installing, change models in ccswitch or Claude Code, then start a new Claude Science session.")
+    set_output(
+        "Click Install / Update once to set up ccscience-sync.\n\n"
+        "After installing, change models in ccswitch or Claude Code, then start a new Claude Science session. "
+        "You do not need to reinstall after model changes."
+    )
     root.after(200, lambda: run_action("Status", gui_status))
     root.mainloop()
     return 0

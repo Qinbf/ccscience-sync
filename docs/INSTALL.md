@@ -43,6 +43,9 @@ Packaged App/EXE builds copy themselves to a stable per-user application data
 directory before installing autostart, so users can delete the downloaded ZIP
 folder after installation.
 
+Users do not need to reinstall after changing models in ccswitch or Claude
+Code. The local helper reads the latest model for new Claude Science sessions.
+
 ## Troubleshooting
 
 If runtime files are not found, launch Claude Science once and run install
