@@ -22,8 +22,8 @@ git push -u origin main
 ## Release
 
 ```sh
-git tag v0.2.3
-git push origin v0.2.3
+git tag v0.2.4
+git push origin v0.2.4
 ```
 
 GitHub Actions will run tests, build the macOS and Windows desktop apps, create

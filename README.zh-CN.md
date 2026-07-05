@@ -23,6 +23,7 @@
 2. 解压 ZIP。
 3. 打开 `ccscience-sync.app`。
 4. 点击 `安装 / 更新`。
+5. 需要打开 Claude Science 时，点击 `打开 Claude Science` 获取新鲜链接。
 
 如果 macOS 拦截应用，请右键点击 App，选择 `Open`，再确认打开。
 
@@ -33,6 +34,7 @@
 2. 解压 ZIP。
 3. 打开 `ccscience-sync.exe`。
 4. 点击 `安装 / 更新`。
+5. 需要打开 Claude Science 时，点击 `打开 Claude Science` 获取新鲜链接。
 
 如果出现 Windows SmartScreen 提示，选择 `More info`，再点 `Run anyway`。
 
@@ -69,6 +71,14 @@ Claude Science 会话时，它会自动读取最新模型。
 打开 `ccscience-sync`，点击 `卸载`。
 
 ## 常见问题
+
+### Claude Science 要我登录
+
+Claude Science 的本地浏览器链接是一次性链接，会过期。打开 `ccscience-sync`，
+点击 `打开 Claude Science`，它会自动生成并打开一个新的本地链接。
+
+如果 Claude Science 要求登录 Claude 账号，请正常登录。这个工具不会、也不能
+绕过 Claude 账号登录。
 
 ### 提示找不到 Claude Science runtime
 

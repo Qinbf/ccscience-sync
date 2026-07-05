@@ -9,6 +9,10 @@ Download the latest release:
 
 Unzip the file, open the app, then click `Install / Update`.
 
+Use `Open Claude Science` in the app to generate a fresh local Claude Science
+URL. This helps avoid expired one-time nonce links, but it does not bypass
+Claude account login.
+
 ## From Source
 
 ```sh

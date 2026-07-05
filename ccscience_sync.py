@@ -28,11 +28,12 @@ import threading
 import time
 import traceback
 import urllib.request
+import webbrowser
 from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -113,10 +114,12 @@ TEXT = {
         "ready": "Ready",
         "install": "Install / Update",
         "status": "Check Status",
+        "open_science": "Open Claude Science",
         "uninstall": "Uninstall",
         "quit": "Quit",
         "install_action": "Install",
         "status_action": "Status",
+        "open_science_action": "Open Claude Science",
         "uninstall_action": "Uninstall",
         "finished": "{action} finished",
         "failed": "{action} failed",
@@ -129,16 +132,21 @@ TEXT = {
         ),
         "gui_error": "Could not start GUI: {error}",
         "gui_fallback": "Run 'ccscience-sync install' from a terminal instead.",
+        "opened_science": "Opened a fresh Claude Science link:\n{url}\n\nIf Claude Science asks for your Claude account, please sign in there. ccscience-sync cannot bypass account login.",
+        "science_cli_missing": "Could not find the claude-science command. Open Claude Science from its own app, or add claude-science to PATH.",
+        "science_url_missing": "Could not get a Claude Science URL from the claude-science command.",
     },
     "zh": {
         "subtitle": "安装一次即可。Claude Science 新会话会自动使用 ccswitch / Claude Code 中最新选择的模型。",
         "ready": "就绪",
         "install": "安装 / 更新",
         "status": "检查状态",
+        "open_science": "打开 Claude Science",
         "uninstall": "卸载",
         "quit": "退出",
         "install_action": "安装",
         "status_action": "状态检查",
+        "open_science_action": "打开 Claude Science",
         "uninstall_action": "卸载",
         "finished": "{action}完成",
         "failed": "{action}失败",
@@ -151,6 +159,9 @@ TEXT = {
         ),
         "gui_error": "无法启动图形界面：{error}",
         "gui_fallback": "请改用终端运行 ccscience-sync install。",
+        "opened_science": "已打开一个新的 Claude Science 一次性链接：\n{url}\n\n如果 Claude Science 要求登录 Claude 账号，请在 Claude Science 中正常登录。ccscience-sync 不能绕过账号登录。",
+        "science_cli_missing": "找不到 claude-science 命令。请从 Claude Science 自己的 App 打开，或把 claude-science 加入 PATH。",
+        "science_url_missing": "无法从 claude-science 命令获取 Claude Science 链接。",
     },
 }
 
@@ -292,6 +303,45 @@ def ensure_frozen_install_target() -> pathlib.Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(executable, target)
     return target if target.exists() else executable
+
+
+def claude_science_commands() -> list[pathlib.Path]:
+    candidates: list[pathlib.Path] = []
+    override = _env_path("CLAUDE_SCIENCE_BIN")
+    if override:
+        candidates.append(override)
+
+    found = shutil.which("claude-science")
+    if found:
+        candidates.append(pathlib.Path(found))
+
+    candidates.extend(
+        [
+            home() / ".local" / "bin" / "claude-science",
+            pathlib.Path("/opt/homebrew/bin/claude-science"),
+            pathlib.Path("/usr/local/bin/claude-science"),
+        ]
+    )
+    return [path for path in _unique_paths(candidates) if path.exists()]
+
+
+def fresh_claude_science_url(lang: str = "en") -> str:
+    commands = claude_science_commands()
+    for command in commands:
+        result = run([str(command), "url"])
+        output = f"{result.stdout}\n{result.stderr}"
+        match = re.search(r"https?://[^\s]+", output)
+        if result.returncode == 0 and match:
+            return match.group(0)
+    if commands:
+        raise SystemExit(tr(lang, "science_url_missing"))
+    raise SystemExit(tr(lang, "science_cli_missing"))
+
+
+def open_claude_science(lang: str = "en") -> str:
+    url = fresh_claude_science_url(lang)
+    webbrowser.open(url)
+    return url
 
 
 def load_json(path: pathlib.Path, default: Any) -> Any:
@@ -784,6 +834,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open_science(args: argparse.Namespace) -> int:
+    lang = detect_language()
+    url = fresh_claude_science_url(lang)
+    if args.print_only:
+        print(url)
+    else:
+        webbrowser.open(url)
+        print(f"opened: {url}")
+    return 0
+
+
 def capture_output(func: Any) -> tuple[int, str]:
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -842,6 +903,16 @@ def gui_install(lang: str) -> tuple[int, str]:
 def gui_status(lang: str) -> tuple[int, str]:
     code, text = capture_output(lambda: cmd_status(argparse.Namespace(port=DEFAULT_PORT)))
     return code, localize_cli_output(text, lang)
+
+
+def gui_open_science(lang: str) -> tuple[int, str]:
+    def action() -> int:
+        url = open_claude_science(lang)
+        print(tr(lang, "opened_science", url=url))
+        return 0
+
+    code, text = capture_output(action)
+    return code, text
 
 
 def gui_uninstall(lang: str) -> tuple[int, str]:
@@ -932,6 +1003,11 @@ def launch_gui() -> int:
         text=tr(lang, "status"),
         command=lambda: run_action(tr(lang, "status_action"), lambda: gui_status(lang)),
     )
+    open_science_button = ttk.Button(
+        button_frame,
+        text=tr(lang, "open_science"),
+        command=lambda: run_action(tr(lang, "open_science_action"), lambda: gui_open_science(lang)),
+    )
     uninstall_button = ttk.Button(
         button_frame,
         text=tr(lang, "uninstall"),
@@ -939,7 +1015,7 @@ def launch_gui() -> int:
     )
     quit_button = ttk.Button(button_frame, text=tr(lang, "quit"), command=root.destroy)
 
-    for button in (install_button, status_button, uninstall_button, quit_button):
+    for button in (install_button, open_science_button, status_button, uninstall_button, quit_button):
         button.pack(side="left", padx=(0, 8))
         buttons.append(button)
 
@@ -976,6 +1052,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", help="show sync status")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("open-science", help="open Claude Science with a fresh one-time URL")
+    p.add_argument("--print-only", action="store_true", help="print the URL instead of opening a browser")
+    p.set_defaults(func=cmd_open_science)
 
     return parser
 

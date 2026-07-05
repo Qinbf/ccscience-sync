@@ -1,6 +1,7 @@
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 import ccscience_sync
 
@@ -37,6 +38,40 @@ class LocalizationTests(unittest.TestCase):
         localized = ccscience_sync.localize_cli_output(text, "zh")
         self.assertIn("后台服务：运行中", localized)
         self.assertIn("运行时补丁：已安装", localized)
+
+
+class ClaudeScienceUrlTests(unittest.TestCase):
+    def test_parses_fresh_url_from_cli_output(self):
+        completed = ccscience_sync.subprocess.CompletedProcess(
+            ["claude-science", "url"],
+            0,
+            "http://localhost:8765/?nonce=abc123\n(single-use, expires in 3 min)\n",
+            "",
+        )
+        with mock.patch.object(
+            ccscience_sync,
+            "claude_science_commands",
+            return_value=[pathlib.Path("/tmp/claude-science")],
+        ):
+            with mock.patch.object(ccscience_sync, "run", return_value=completed):
+                self.assertEqual(ccscience_sync.fresh_claude_science_url(), "http://localhost:8765/?nonce=abc123")
+
+    def test_reports_when_cli_has_no_url(self):
+        completed = ccscience_sync.subprocess.CompletedProcess(
+            ["claude-science", "url"],
+            1,
+            "",
+            "not running",
+        )
+        with mock.patch.object(
+            ccscience_sync,
+            "claude_science_commands",
+            return_value=[pathlib.Path("/tmp/claude-science")],
+        ):
+            with mock.patch.object(ccscience_sync, "run", return_value=completed):
+                with self.assertRaises(SystemExit) as raised:
+                    ccscience_sync.fresh_claude_science_url("zh")
+        self.assertEqual(str(raised.exception), ccscience_sync.tr("zh", "science_url_missing"))
 
 
 class RuntimePatchTests(unittest.TestCase):

@@ -25,6 +25,7 @@ Before installing:
 2. Unzip it.
 3. Open `ccscience-sync.app`.
 4. Click `Install / Update`.
+5. Click `Open Claude Science` when you want a fresh Claude Science link.
 
 If macOS blocks the app, right-click it, choose `Open`, then confirm.
 
@@ -35,6 +36,7 @@ If macOS blocks the app, right-click it, choose `Open`, then confirm.
 2. Unzip it.
 3. Open `ccscience-sync.exe`.
 4. Click `Install / Update`.
+5. Click `Open Claude Science` when you want a fresh Claude Science link.
 
 If Windows SmartScreen appears, choose `More info`, then `Run anyway`.
 
@@ -72,6 +74,15 @@ does not show `runtime patch: installed`.
 Open `ccscience-sync` and click `Uninstall`.
 
 ## Common Problems
+
+### Claude Science asks me to log in
+
+Claude Science's local browser link is a one-time link and can expire. Open
+`ccscience-sync` and click `Open Claude Science` to generate and open a fresh
+link.
+
+If Claude Science asks for your Claude account, sign in normally. This tool
+does not and cannot bypass Claude account login.
 
 ### Claude Science runtime not found
 
