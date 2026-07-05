@@ -2,12 +2,18 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-让 Claude Science 自动使用你在 ccswitch 或 Claude Code 里选择的模型。
+让 Claude Science 或内置第三方模型工作台自动使用你在 ccswitch 或 Claude
+Code 里选择的模型。
 
 普通用户不需要安装 Python，也不需要打开终端或 PowerShell。下载 App/EXE，
 打开后点一下安装即可。
 
 桌面 App 会自动检测系统语言：中文系统显示中文，其他系统默认显示英文。
+
+## 两种模式
+
+- `Claude Science 模式`：需要正常登录 Claude Science。这个模式只负责同步模型和打开新鲜的一次性链接，不绕过登录。
+- `第三方模型工作台`：不需要 Claude Science 登录。它使用你自己的第三方 API Key，默认支持 OpenAI-compatible 的 DeepSeek 接口。
 
 ## 一键安装
 
@@ -23,7 +29,8 @@
 2. 解压 ZIP。
 3. 打开 `ccscience-sync.app`。
 4. 点击 `安装 / 更新`。
-5. 需要打开 Claude Science 时，点击 `打开 Claude Science` 获取新鲜链接。
+5. 有 Claude 账号时，点击 `打开 Claude Science`。
+6. 没有 Claude 账号时，点击 `第三方模型工作台`。
 
 如果 macOS 拦截应用，请右键点击 App，选择 `Open`，再确认打开。
 
@@ -34,7 +41,8 @@
 2. 解压 ZIP。
 3. 打开 `ccscience-sync.exe`。
 4. 点击 `安装 / 更新`。
-5. 需要打开 Claude Science 时，点击 `打开 Claude Science` 获取新鲜链接。
+5. 有 Claude 账号时，点击 `打开 Claude Science`。
+6. 没有 Claude 账号时，点击 `第三方模型工作台`。
 
 如果出现 Windows SmartScreen 提示，选择 `More info`，再点 `Run anyway`。
 
@@ -52,13 +60,21 @@
 之后正常使用 ccswitch 或 Claude Code 切模型即可。你新建 Claude Science
 会话时，它会自动使用同步过来的模型。
 
+第三方模型工作台会在状态里显示：
+
+```text
+第三方服务商：DeepSeek
+第三方模型：deepseek-v4-flash
+第三方 API Key：已配置
+```
+
 ## 平时怎么用
 
 安装完成后，不需要一直开着这个 App。
 
 1. 在 ccswitch 或 Claude Code 里切换模型。
-2. 新建 Claude Science 会话。
-3. Claude Science 会自动使用同步后的模型。
+2. 有 Claude 账号时，新建 Claude Science 会话。
+3. 没有 Claude 账号时，打开 `第三方模型工作台` 直接聊天。
 
 ccswitch 或 Claude Code 里切换模型后，不需要重装 `ccscience-sync`。新建
 Claude Science 会话时，它会自动读取最新模型。
@@ -71,6 +87,27 @@ Claude Science 会话时，它会自动读取最新模型。
 打开 `ccscience-sync`，点击 `卸载`。
 
 ## 常见问题
+
+### 没有 Claude 账号能用吗
+
+可以用 `第三方模型工作台`。它不启动 Claude Science，也不需要 Claude Science
+登录；它直接读取 ccswitch 当前模型，然后调用你配置的第三方模型服务。
+
+默认配置：
+
+- API Key 环境变量：`DEEPSEEK_API_KEY`
+- Base URL：`https://api.deepseek.com`
+- Endpoint：`/chat/completions`
+- 默认轻量模型：`deepseek-v4-flash`
+- Opus 类模型：`deepseek-v4-pro`
+
+API Key 请保存在你自己的系统环境变量或 `~/.zshrc` 中，例如只记录变量名：
+
+```zsh
+export DEEPSEEK_API_KEY="<your_key>"
+```
+
+然后重新打开 `ccscience-sync`。
 
 ### Claude Science 要我登录
 
@@ -101,10 +138,14 @@ ccswitch 或 Claude Code 切换模型后，不需要重装 `ccscience-sync`。
 `~/.claude/settings.json` 里的当前模型，把它转换成 Claude Science 使用的
 模型 ID，然后在本机把 Claude Science 新会话的模型同步过去。
 
+在第三方模型工作台中，它会把 ccswitch 当前模型映射为第三方服务商模型，
+并从环境变量读取 API Key 后调用 OpenAI-compatible 聊天接口。
+
 它不是固定每 5 秒傻刷。Claude Science 页面重新变为活跃、用户点击或按键、
 以及新建会话请求发出前，都会刷新一次最新模型。
 
-它不会读取、保存、打印、上传或在文档中记录 API key、密码、token 或其他凭据。
+它不会保存、打印或在文档中记录 API Key 明文。第三方模型工作台只会读取你配置的
+环境变量，并把这个值作为鉴权请求头发送给你配置的第三方服务商。
 
 ## 从源码运行
 
@@ -122,6 +163,7 @@ python3 ccscience_sync.py
 ```sh
 python3 ccscience_sync.py install
 python3 ccscience_sync.py status
+python3 ccscience_sync.py open-workbench
 python3 ccscience_sync.py uninstall
 ```
 
@@ -130,6 +172,7 @@ Windows：
 ```powershell
 py -3 .\ccscience_sync.py install
 py -3 .\ccscience_sync.py status
+py -3 .\ccscience_sync.py open-workbench
 py -3 .\ccscience_sync.py uninstall
 ```
 
@@ -155,6 +198,26 @@ py -3 .\ccscience_sync.py uninstall
 | `sonnet-4`, `4.6` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5` |
 | `fable` | `claude-fable-5` |
+
+第三方工作台也可以自定义 OpenAI-compatible 服务商：
+
+```json
+{
+  "workbench": {
+    "provider": "My Provider",
+    "base_url": "https://api.example.com",
+    "endpoint": "/chat/completions",
+    "api_key_env": "MY_PROVIDER_API_KEY",
+    "default_model": "provider-default-model",
+    "model_map": {
+      "opus": "provider-strong-model",
+      "sonnet": "provider-fast-model"
+    }
+  }
+}
+```
+
+配置文件只写变量名，不写 API Key 明文。
 
 ## 开发
 
