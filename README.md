@@ -2,33 +2,113 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-Sync the model selected by ccswitch or Claude Code into Claude Science.
+Use the same model in Claude Science that you selected in ccswitch or Claude
+Code.
 
-`ccscience-sync` is a small local bridge for users who switch Claude Code
-models with ccswitch and want new Claude Science sessions to use the same
-model automatically.
+If you are not a developer, start here. You only need to install it once.
+
+## Simple Setup
+
+Before installing:
+
+1. Install Python 3.9 or newer.
+2. Open Claude Science once, then close it.
+3. Make sure ccswitch or Claude Code already has the model you want selected.
+
+### Step 1: Download
+
+Download this project and unzip it:
+
+[Download ZIP](https://github.com/Qinbf/ccscience-sync/archive/refs/heads/main.zip)
+
+### Step 2: Install
+
+macOS:
+
+Double-click `install-macos.command`.
+
+Windows:
+
+Double-click `install-windows.bat`.
+
+### If Double-Click Does Not Work
+
+macOS Terminal:
+
+```sh
+cd ~/Downloads/ccscience-sync-main
+python3 ccscience_sync.py install
+python3 ccscience_sync.py status
+```
+
+Windows PowerShell:
+
+```powershell
+cd "$env:USERPROFILE\Downloads\ccscience-sync-main"
+py -3 .\ccscience_sync.py install
+py -3 .\ccscience_sync.py status
+```
+
+## How To Know It Worked
+
+`status` should show something like:
+
+```text
+helper: running (...)
+runtime patch: installed (...)
+```
+
+After that, use ccswitch or Claude Code as usual. When you start a new Claude
+Science session, it should use the same model.
+
+## Everyday Use
+
+After installation, there is nothing else to open.
+
+1. Change model in ccswitch or Claude Code.
+2. Start a new Claude Science session.
+3. Claude Science uses the synced model automatically.
+
+If Claude Science updates, run `install` again.
+
+## Uninstall
+
+macOS:
+
+Double-click `uninstall-macos.command`.
+
+Windows:
+
+Double-click `uninstall-windows.bat`.
+
+## Common Problems
+
+### Python command not found
+
+Install Python from [python.org](https://www.python.org/downloads/), then open
+a new Terminal or PowerShell window and try again.
+
+### Claude Science runtime not found
+
+Open Claude Science once, close it, then run `install` again.
+
+### Model did not change
+
+Start a new Claude Science session. Existing sessions may keep the model they
+were created with.
+
+## What This Tool Does
+
+`ccscience-sync` is a local helper. It reads the current model from
+`~/.claude/settings.json`, maps it to a Claude Science model ID, and updates
+Claude Science's new-session model locally.
 
 It does not read, store, print, upload, or document API keys, passwords, or
 tokens.
 
-## What It Does
+## Advanced Usage
 
-- Reads the active Claude Code model from `~/.claude/settings.json`.
-- Maps that model to the model IDs used by Claude Science.
-- Starts a localhost helper at `127.0.0.1:19783`.
-- Applies a reversible patch to Claude Science's web runtime.
-- Keeps Claude Science's default model and new-session request model in sync.
-- Supports macOS and Windows without administrator permissions.
-
-## Requirements
-
-- Python 3.9 or newer.
-- Claude Code or ccswitch writing `~/.claude/settings.json`.
-- Claude Science installed and launched at least once.
-
-## Quick Install
-
-With `pipx`:
+Install with `pipx`:
 
 ```sh
 pipx install git+https://github.com/Qinbf/ccscience-sync.git
@@ -36,45 +116,19 @@ ccscience-sync install
 ccscience-sync status
 ```
 
-From source:
-
-```sh
-git clone https://github.com/Qinbf/ccscience-sync.git
-cd ccscience-sync
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
-```
-
-On Windows, use PowerShell:
-
-```powershell
-git clone https://github.com/Qinbf/ccscience-sync.git
-cd ccscience-sync
-py -3 .\ccscience_sync.py install
-py -3 .\ccscience_sync.py status
-```
-
-## Commands
+Useful commands:
 
 ```sh
 ccscience-sync model
-ccscience-sync serve --port 19783
 ccscience-sync install
-ccscience-sync install --all
-ccscience-sync install --no-autostart
 ccscience-sync status
 ccscience-sync uninstall
 ```
 
-If you run directly from source, replace `ccscience-sync` with
-`python3 ccscience_sync.py`. On Windows, use `py -3 .\ccscience_sync.py`.
+Direct source commands:
 
-## Platform Behavior
-
-| Platform | Autostart method | Admin required |
-| --- | --- | --- |
-| macOS | User LaunchAgent | No |
-| Windows | Current user's Startup folder | No |
+- macOS: `python3 ccscience_sync.py <command>`
+- Windows: `py -3 .\ccscience_sync.py <command>`
 
 ## Custom Model Map
 
@@ -99,64 +153,12 @@ Default mapping:
 | `haiku` | `claude-haiku-4-5` |
 | `fable` | `claude-fable-5` |
 
-## Claude Science Data Directory
-
-If Claude Science stores runtime files somewhere unusual, set
-`CLAUDE_SCIENCE_DATA_DIR` before installing:
-
-```sh
-export CLAUDE_SCIENCE_DATA_DIR="/path/to/.claude-science"
-ccscience-sync install
-```
-
-PowerShell:
-
-```powershell
-$env:CLAUDE_SCIENCE_DATA_DIR = "C:\path\to\.claude-science"
-ccscience-sync install
-```
-
-## Updating Claude Science
-
-Claude Science updates may create a new runtime directory. Re-run:
-
-```sh
-ccscience-sync install
-```
-
-## Uninstall
-
-```sh
-ccscience-sync uninstall
-```
-
-This removes the runtime patch and the helper autostart entry. It does not
-modify Claude Code settings, ccswitch settings, or API credentials.
-
-## How It Works
-
-Claude Code stores its current model in `~/.claude/settings.json`. Claude
-Science stores a default model in browser local storage and sends a `model`
-field when starting a new session. `ccscience-sync` bridges those two local
-places with:
-
-- a tiny localhost JSON endpoint that exposes the mapped model; and
-- a marked script patch in Claude Science's `web-dist/index.html`.
-
-The patch is wrapped with `ccscience-sync:start` and `ccscience-sync:end`
-markers, so it can be updated or removed safely.
-
 ## Development
 
 ```sh
 python3 -m unittest discover -s tests
 python3 -m py_compile ccscience_sync.py
 ```
-
-## Security
-
-`ccscience-sync` only reads local model metadata. Please do not open issues or
-pull requests containing API keys, passwords, tokens, or private credentials.
 
 ## License
 
