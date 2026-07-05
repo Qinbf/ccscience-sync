@@ -21,27 +21,23 @@ import os
 import pathlib
 import plistlib
 import re
-import shlex
 import shutil
 import subprocess
 import sys
 import threading
 import time
 import traceback
-import urllib.error
-import urllib.parse
 import urllib.request
 import webbrowser
 from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.3.0"
+VERSION = "0.2.5"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
 MARKER_END = "<!-- ccscience-sync:end -->"
-MAX_CHAT_BYTES = 512 * 1024
 
 
 def home() -> pathlib.Path:
@@ -119,13 +115,11 @@ TEXT = {
         "install": "Install / Update",
         "status": "Check Status",
         "open_science": "Open Claude Science",
-        "open_workbench": "Third-Party Workbench",
         "uninstall": "Uninstall",
         "quit": "Quit",
         "install_action": "Install",
         "status_action": "Status",
         "open_science_action": "Open Claude Science",
-        "open_workbench_action": "Third-Party Workbench",
         "uninstall_action": "Uninstall",
         "finished": "{action} finished",
         "failed": "{action} failed",
@@ -134,16 +128,13 @@ TEXT = {
         "initial": (
             "Click Install / Update once to set up ccscience-sync.\n\n"
             "After installing, change models in ccswitch or Claude Code, then start a new Claude Science session. "
-            "You do not need to reinstall after model changes.\n\n"
-            "No Claude account? Use Third-Party Workbench with your own API key instead."
+            "You do not need to reinstall after model changes."
         ),
         "gui_error": "Could not start GUI: {error}",
         "gui_fallback": "Run 'ccscience-sync install' from a terminal instead.",
         "opened_science": "Opened a fresh Claude Science link:\n{url}\n\nIf Claude Science asks for your Claude account, please sign in there. ccscience-sync cannot bypass account login.",
-        "opened_workbench": "Opened the third-party model workbench:\n{url}\n\nThis mode uses your own OpenAI-compatible API key and does not use Claude Science sign-in.",
         "science_cli_missing": "Could not find the claude-science command. Open Claude Science from its own app, or add claude-science to PATH.",
         "science_url_missing": "Could not get a Claude Science URL from the claude-science command.",
-        "helper_start_failed": "Could not start the local helper on 127.0.0.1:{port}.",
     },
     "zh": {
         "subtitle": "安装一次即可。Claude Science 新会话会自动使用 ccswitch / Claude Code 中最新选择的模型。",
@@ -151,13 +142,11 @@ TEXT = {
         "install": "安装 / 更新",
         "status": "检查状态",
         "open_science": "打开 Claude Science",
-        "open_workbench": "第三方模型工作台",
         "uninstall": "卸载",
         "quit": "退出",
         "install_action": "安装",
         "status_action": "状态检查",
         "open_science_action": "打开 Claude Science",
-        "open_workbench_action": "第三方模型工作台",
         "uninstall_action": "卸载",
         "finished": "{action}完成",
         "failed": "{action}失败",
@@ -166,16 +155,13 @@ TEXT = {
         "initial": (
             "点击“安装 / 更新”完成一次性设置。\n\n"
             "安装后，在 ccswitch 或 Claude Code 中切换模型，然后新建 Claude Science 会话即可。"
-            "切换模型后不需要重新安装。\n\n"
-            "没有 Claude 账号时，可以使用“第三方模型工作台”，用自己的第三方 API Key 直接聊天。"
+            "切换模型后不需要重新安装。"
         ),
         "gui_error": "无法启动图形界面：{error}",
         "gui_fallback": "请改用终端运行 ccscience-sync install。",
         "opened_science": "已打开一个新的 Claude Science 一次性链接：\n{url}\n\n如果 Claude Science 要求登录 Claude 账号，请在 Claude Science 中正常登录。ccscience-sync 不能绕过账号登录。",
-        "opened_workbench": "已打开第三方模型工作台：\n{url}\n\n这个模式使用你自己的 OpenAI-compatible API Key，不需要 Claude Science 登录。",
         "science_cli_missing": "找不到 claude-science 命令。请从 Claude Science 自己的 App 打开，或把 claude-science 加入 PATH。",
         "science_url_missing": "无法从 claude-science 命令获取 Claude Science 链接。",
-        "helper_start_failed": "无法启动本地后台服务：127.0.0.1:{port}。",
     },
 }
 
@@ -358,72 +344,6 @@ def open_claude_science(lang: str = "en") -> str:
     return url
 
 
-def helper_is_running(port: int = DEFAULT_PORT) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1.0) as res:
-            return 200 <= res.status < 300
-    except Exception:
-        return False
-
-
-def helper_supports_workbench(port: int = DEFAULT_PORT) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/workbench-info", timeout=1.0) as res:
-            return 200 <= res.status < 300
-    except Exception:
-        return False
-
-
-def start_helper_background(port: int = DEFAULT_PORT) -> None:
-    if helper_is_running(port):
-        return
-    kwargs: dict[str, Any] = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "stdin": subprocess.DEVNULL,
-    }
-    if is_windows():
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    else:
-        kwargs["start_new_session"] = True
-    subprocess.Popen(helper_command(port, background=True), **kwargs)
-    for _ in range(30):
-        if helper_is_running(port):
-            return
-        time.sleep(0.1)
-
-
-def ensure_workbench_helper(port: int = DEFAULT_PORT) -> int:
-    if helper_supports_workbench(port):
-        return port
-    if not helper_is_running(port):
-        start_helper_background(port)
-        if helper_supports_workbench(port):
-            return port
-    for candidate in range(port + 1, port + 11):
-        if helper_supports_workbench(candidate):
-            return candidate
-        if helper_is_running(candidate):
-            continue
-        start_helper_background(candidate)
-        if helper_supports_workbench(candidate):
-            return candidate
-    return port
-
-
-def workbench_url(port: int = DEFAULT_PORT, lang: str = "en") -> str:
-    return f"http://127.0.0.1:{port}/workbench?lang={urllib.parse.quote(lang)}"
-
-
-def open_workbench(lang: str = "en", port: int = DEFAULT_PORT) -> str:
-    actual_port = ensure_workbench_helper(port)
-    if not helper_supports_workbench(actual_port):
-        raise SystemExit(tr(lang, "helper_start_failed", port=actual_port))
-    url = workbench_url(actual_port, lang)
-    webbrowser.open(url)
-    return url
-
-
 def load_json(path: pathlib.Path, default: Any) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -513,179 +433,6 @@ def current_model_payload() -> dict[str, Any]:
         "effort": target_effort,
         "settings_path": str(claude_settings_path()),
         "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-    }
-
-
-def shell_export_value(line: str, name: str) -> str | None:
-    try:
-        parts = shlex.split(line, comments=True, posix=True)
-    except ValueError:
-        return None
-    if not parts or parts[0] != "export":
-        return None
-    prefix = f"{name}="
-    for part in parts[1:]:
-        if part.startswith(prefix):
-            return part[len(prefix) :]
-    return None
-
-
-def credential_value(name: str) -> str | None:
-    value = os.environ.get(name)
-    if value:
-        return value
-    for path in (home() / ".zshrc", home() / ".zprofile", home() / ".bash_profile", home() / ".bashrc"):
-        with contextlib.suppress(OSError):
-            for line in reversed(path.read_text(encoding="utf-8").splitlines()):
-                value = shell_export_value(line, name)
-                if value:
-                    return value
-    return None
-
-
-def default_workbench_model_map() -> dict[str, str]:
-    return {
-        "opus": "deepseek-v4-pro",
-        "sonnet": "deepseek-v4-flash",
-        "haiku": "deepseek-v4-flash",
-        "fable": "deepseek-v4-flash",
-    }
-
-
-def workbench_config() -> dict[str, Any]:
-    user_config = load_user_config()
-    raw = user_config.get("workbench", {})
-    if not isinstance(raw, dict):
-        raw = {}
-    model_map = default_workbench_model_map()
-    if isinstance(raw.get("model_map"), dict):
-        for key, value in raw["model_map"].items():
-            if isinstance(key, str) and value:
-                model_map[key.lower()] = str(value)
-    base_url = str(raw.get("base_url") or "https://api.deepseek.com").rstrip("/")
-    endpoint = str(raw.get("endpoint") or "/chat/completions")
-    if not endpoint.startswith(("http://", "https://", "/")):
-        endpoint = "/" + endpoint
-    return {
-        "provider": str(raw.get("provider") or "DeepSeek"),
-        "base_url": base_url,
-        "endpoint": endpoint,
-        "api_key_env": str(raw.get("api_key_env") or "DEEPSEEK_API_KEY"),
-        "default_model": str(raw.get("default_model") or "deepseek-v4-flash"),
-        "model_map": model_map,
-    }
-
-
-def map_workbench_model(source_model: str | None, config: dict[str, Any]) -> str:
-    source = normalize_model(source_model)
-    model_map = config.get("model_map", {})
-    if isinstance(model_map, dict):
-        candidates = [source_model, source, source.lower() if source else None]
-        for candidate in candidates:
-            if isinstance(candidate, str):
-                for key in (candidate, candidate.lower()):
-                    if key in model_map and model_map[key]:
-                        return str(model_map[key])
-        low = (source or "").lower()
-        for key, value in model_map.items():
-            if key and key in low and value:
-                return str(value)
-    return str(config.get("default_model") or "deepseek-v4-flash")
-
-
-def workbench_payload() -> dict[str, Any]:
-    settings = load_json(claude_settings_path(), {})
-    if not isinstance(settings, dict):
-        settings = {}
-    source_model = settings.get("model")
-    config = workbench_config()
-    api_key_env = str(config["api_key_env"])
-    return {
-        "ok": True,
-        "mode": "third-party",
-        "provider": config["provider"],
-        "base_url": config["base_url"],
-        "endpoint": config["endpoint"],
-        "api_key_env": api_key_env,
-        "api_key_configured": bool(credential_value(api_key_env)),
-        "source_model": source_model,
-        "model": map_workbench_model(str(source_model) if source_model else None, config),
-        "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-    }
-
-
-def workbench_endpoint(config: dict[str, Any]) -> str:
-    endpoint = str(config["endpoint"])
-    if endpoint.startswith(("http://", "https://")):
-        return endpoint
-    return str(config["base_url"]).rstrip("/") + endpoint
-
-
-def normalize_messages(messages: Any) -> list[dict[str, str]]:
-    if not isinstance(messages, list):
-        raise ValueError("messages must be an array")
-    normalized: list[dict[str, str]] = []
-    for item in messages:
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("role") or "")
-        content = item.get("content")
-        if role not in {"system", "user", "assistant"} or not isinstance(content, str):
-            continue
-        content = content.strip()
-        if content:
-            normalized.append({"role": role, "content": content[:20000]})
-    if not normalized:
-        raise ValueError("messages must include at least one user message")
-    return normalized[-40:]
-
-
-def chat_completion(messages: list[dict[str, str]]) -> dict[str, Any]:
-    config = workbench_config()
-    api_key_env = str(config["api_key_env"])
-    api_key = credential_value(api_key_env)
-    if not api_key:
-        raise RuntimeError(f"Missing API key environment variable: {api_key_env}")
-
-    settings = load_json(claude_settings_path(), {})
-    if not isinstance(settings, dict):
-        settings = {}
-    payload = {
-        "model": map_workbench_model(str(settings.get("model") or ""), config),
-        "messages": messages,
-        "stream": False,
-    }
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        workbench_endpoint(config),
-        data=data,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": f"{APP_NAME}/{VERSION}",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            raw = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise RuntimeError(f"Provider returned HTTP {exc.code}: {detail}") from exc
-    result = json.loads(raw)
-    choices = result.get("choices") if isinstance(result, dict) else None
-    if not choices:
-        raise RuntimeError("Provider response did not include choices")
-    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-    content = message.get("content")
-    if not isinstance(content, str):
-        raise RuntimeError("Provider response did not include message content")
-    return {
-        "ok": True,
-        "provider": config["provider"],
-        "model": payload["model"],
-        "content": content,
     }
 
 
@@ -864,271 +611,6 @@ def unpatch_index(path: pathlib.Path) -> str:
     return "removed"
 
 
-def workbench_html(lang: str = "en") -> str:
-    zh = lang == "zh"
-    labels = {
-        "title": "第三方模型工作台" if zh else "Third-Party Model Workbench",
-        "subtitle": "使用 ccswitch 当前模型和你自己的第三方 API Key，不需要 Claude Science 登录。"
-        if zh
-        else "Use the current ccswitch model with your own third-party API key. Claude Science sign-in is not used.",
-        "provider": "服务商" if zh else "Provider",
-        "source": "ccswitch 模型" if zh else "ccswitch model",
-        "target": "实际调用模型" if zh else "Provider model",
-        "key": "API Key" if zh else "API key",
-        "ready": "已配置" if zh else "configured",
-        "missing": "未检测到" if zh else "missing",
-        "placeholder": "输入你的问题，按 Ctrl+Enter 发送。" if zh else "Type a message. Press Ctrl+Enter to send.",
-        "send": "发送" if zh else "Send",
-        "clear": "清空" if zh else "Clear",
-        "empty": "先输入一条消息。" if zh else "Type a message first.",
-        "thinking": "模型正在回复..." if zh else "The model is replying...",
-        "missing_key": "未检测到 {env}。请把 API Key 保存到环境变量，或写入 ~/.zshrc 后重新打开应用。"
-        if zh
-        else "{env} was not found. Save your API key in that environment variable, then reopen the app.",
-        "error": "请求失败" if zh else "Request failed",
-    }
-    state = json.dumps(labels, ensure_ascii=False)
-    return f"""<!doctype html>
-<html lang="{urllib.parse.quote(lang)}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{labels["title"]}</title>
-  <style>
-    :root {{
-      color-scheme: light dark;
-      --bg: #f7f8fb;
-      --panel: #ffffff;
-      --text: #202124;
-      --muted: #667085;
-      --line: #d8dce5;
-      --accent: #0f766e;
-      --accent-strong: #115e59;
-      --error: #b42318;
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --bg: #101214;
-        --panel: #171a1f;
-        --text: #f2f4f7;
-        --muted: #a5adba;
-        --line: #343a46;
-        --accent: #5eead4;
-        --accent-strong: #2dd4bf;
-        --error: #f97066;
-      }}
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }}
-    main {{
-      width: min(1100px, calc(100vw - 32px));
-      margin: 0 auto;
-      padding: 24px 0;
-    }}
-    header {{
-      display: flex;
-      justify-content: space-between;
-      gap: 24px;
-      align-items: flex-start;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--line);
-    }}
-    h1 {{ margin: 0 0 8px; font-size: 24px; line-height: 1.25; }}
-    p {{ margin: 0; color: var(--muted); line-height: 1.5; }}
-    .meta {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(150px, 1fr));
-      gap: 10px;
-      min-width: 360px;
-    }}
-    .meta div {{
-      border: 1px solid var(--line);
-      background: var(--panel);
-      border-radius: 8px;
-      padding: 10px 12px;
-    }}
-    .meta span {{ display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }}
-    .meta strong {{ font-size: 14px; overflow-wrap: anywhere; }}
-    .chat {{
-      display: grid;
-      grid-template-rows: 1fr auto;
-      gap: 16px;
-      min-height: calc(100vh - 190px);
-      padding-top: 18px;
-    }}
-    #messages {{
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      overflow: auto;
-      padding-right: 4px;
-    }}
-    .message {{
-      max-width: 82%;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px 14px;
-      background: var(--panel);
-      white-space: pre-wrap;
-      line-height: 1.55;
-    }}
-    .user {{ align-self: flex-end; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }}
-    .assistant {{ align-self: flex-start; }}
-    .system {{ align-self: center; max-width: 100%; color: var(--muted); }}
-    .error {{ color: var(--error); border-color: color-mix(in srgb, var(--error) 55%, var(--line)); }}
-    form {{
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 10px;
-      align-items: end;
-      border-top: 1px solid var(--line);
-      padding-top: 14px;
-    }}
-    textarea {{
-      width: 100%;
-      min-height: 88px;
-      resize: vertical;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      font: inherit;
-      color: var(--text);
-      background: var(--panel);
-    }}
-    button {{
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 0 18px;
-      height: 42px;
-      font: inherit;
-      color: var(--text);
-      background: var(--panel);
-      cursor: pointer;
-    }}
-    button[type="submit"] {{
-      color: #ffffff;
-      border-color: var(--accent-strong);
-      background: var(--accent-strong);
-    }}
-    button:disabled {{ opacity: 0.6; cursor: wait; }}
-    @media (max-width: 760px) {{
-      main {{ width: min(100vw - 20px, 1000px); padding-top: 14px; }}
-      header {{ display: block; }}
-      .meta {{ grid-template-columns: 1fr; min-width: 0; margin-top: 16px; }}
-      .message {{ max-width: 100%; }}
-      form {{ grid-template-columns: 1fr; }}
-      button {{ width: 100%; }}
-    }}
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <section>
-        <h1>{labels["title"]}</h1>
-        <p>{labels["subtitle"]}</p>
-      </section>
-      <section class="meta">
-        <div><span>{labels["provider"]}</span><strong id="provider">-</strong></div>
-        <div><span>{labels["key"]}</span><strong id="key">-</strong></div>
-        <div><span>{labels["source"]}</span><strong id="source">-</strong></div>
-        <div><span>{labels["target"]}</span><strong id="target">-</strong></div>
-      </section>
-    </header>
-    <section class="chat">
-      <div id="messages"></div>
-      <form id="form">
-        <textarea id="input" placeholder="{labels["placeholder"]}"></textarea>
-        <button type="submit" id="send">{labels["send"]}</button>
-        <button type="button" id="clear">{labels["clear"]}</button>
-      </form>
-    </section>
-  </main>
-  <script>
-    const labels = {state};
-    const messages = [];
-    const list = document.getElementById("messages");
-    const input = document.getElementById("input");
-    const send = document.getElementById("send");
-
-    function add(role, text, extra) {{
-      const item = document.createElement("div");
-      item.className = "message " + role + (extra ? " " + extra : "");
-      item.textContent = text;
-      list.appendChild(item);
-      list.scrollTop = list.scrollHeight;
-      return item;
-    }}
-
-    async function loadInfo() {{
-      const res = await fetch("/workbench-info", {{ cache: "no-store" }});
-      const info = await res.json();
-      document.getElementById("provider").textContent = info.provider || "-";
-      document.getElementById("source").textContent = info.source_model || "-";
-      document.getElementById("target").textContent = info.model || "-";
-      document.getElementById("key").textContent = (info.api_key_configured ? labels.ready : labels.missing) + " (" + info.api_key_env + ")";
-      if (!info.api_key_configured) {{
-        add("system", labels.missing_key.replace("{{env}}", info.api_key_env), "error");
-      }}
-    }}
-
-    async function submitMessage() {{
-      const text = input.value.trim();
-      if (!text) {{
-        add("system", labels.empty);
-        return;
-      }}
-      input.value = "";
-      messages.push({{ role: "user", content: text }});
-      add("user", text);
-      const pending = add("assistant", labels.thinking);
-      send.disabled = true;
-      try {{
-        const res = await fetch("/chat", {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json" }},
-          body: JSON.stringify({{ messages }})
-        }});
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || labels.error);
-        pending.textContent = data.content;
-        messages.push({{ role: "assistant", content: data.content }});
-        document.getElementById("target").textContent = data.model || document.getElementById("target").textContent;
-      }} catch (err) {{
-        pending.textContent = labels.error + ": " + err.message;
-        pending.classList.add("error");
-      }} finally {{
-        send.disabled = false;
-        input.focus();
-      }}
-    }}
-
-    document.getElementById("form").addEventListener("submit", function (event) {{
-      event.preventDefault();
-      submitMessage();
-    }});
-    input.addEventListener("keydown", function (event) {{
-      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {{
-        event.preventDefault();
-        submitMessage();
-      }}
-    }});
-    document.getElementById("clear").addEventListener("click", function () {{
-      messages.length = 0;
-      list.textContent = "";
-    }});
-    loadInfo().catch(function (err) {{ add("system", labels.error + ": " + err.message, "error"); }});
-  </script>
-</body>
-</html>"""
-
-
 class ModelHandler(http.server.BaseHTTPRequestHandler):
     server_version = "ccscience-sync/1.0"
 
@@ -1137,27 +619,9 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
 
     def cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Accept, Content-Type")
         self.send_header("Cache-Control", "no-store")
-
-    def send_json(self, status: int, payload: dict[str, Any]) -> None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.cors()
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def send_text(self, status: int, text: str, content_type: str = "text/plain; charset=utf-8") -> None:
-        data = text.encode("utf-8")
-        self.send_response(status)
-        self.cors()
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
@@ -1165,48 +629,22 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        if path == "/":
-            self.send_response(302)
-            self.send_header("Location", "/workbench")
+        if self.path.split("?", 1)[0] not in ("/model", "/health"):
+            self.send_response(404)
+            self.cors()
             self.end_headers()
-            return
-        if path == "/workbench":
-            query = urllib.parse.parse_qs(parsed.query)
-            lang = "zh" if query.get("lang", [""])[0].lower().startswith("zh") else "en"
-            self.send_text(200, workbench_html(lang), "text/html; charset=utf-8")
-            return
-        if path == "/workbench-info":
-            self.send_json(200, workbench_payload())
-            return
-        if path not in ("/model", "/health"):
-            self.send_text(404, "not found\n")
+            self.wfile.write(b"not found\n")
             return
         payload = current_model_payload()
-        if path == "/health":
+        if self.path.startswith("/health"):
             payload = {"ok": True, "model": payload.get("model")}
-        self.send_json(200, payload)
-
-    def do_POST(self) -> None:  # noqa: N802
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/chat":
-            self.send_text(404, "not found\n")
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length <= 0 or length > MAX_CHAT_BYTES:
-            self.send_json(413, {"ok": False, "error": "request body is empty or too large"})
-            return
-        try:
-            body = self.rfile.read(length).decode("utf-8")
-            payload = json.loads(body)
-            messages = normalize_messages(payload.get("messages") if isinstance(payload, dict) else None)
-            self.send_json(200, chat_completion(messages))
-        except Exception as exc:
-            self.send_json(400, {"ok": False, "error": str(exc)})
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.cors()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def serve(port: int) -> None:
@@ -1385,11 +823,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"source model: {payload.get('source_model')}")
     print(f"science model: {payload.get('model')}")
     print(f"effort: {payload.get('effort')}")
-    workbench = workbench_payload()
-    key_status = "configured" if workbench.get("api_key_configured") else f"missing ({workbench.get('api_key_env')})"
-    print(f"workbench provider: {workbench.get('provider')}")
-    print(f"workbench model: {workbench.get('model')}")
-    print(f"workbench key: {key_status}")
     print(f"helper: {helper_status(args.port)}")
     print(f"autostart: {autostart_status()}")
     indexes = runtime_indexes()
@@ -1404,20 +837,6 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_open_science(args: argparse.Namespace) -> int:
     lang = detect_language()
     url = fresh_claude_science_url(lang)
-    if args.print_only:
-        print(url)
-    else:
-        webbrowser.open(url)
-        print(f"opened: {url}")
-    return 0
-
-
-def cmd_open_workbench(args: argparse.Namespace) -> int:
-    lang = detect_language()
-    port = ensure_workbench_helper(args.port)
-    if not helper_supports_workbench(port):
-        raise SystemExit(tr(lang, "helper_start_failed", port=port))
-    url = workbench_url(port, lang)
     if args.print_only:
         print(url)
     else:
@@ -1453,9 +872,6 @@ def localize_cli_output(text: str, lang: str) -> str:
         ("source model:", "来源模型："),
         ("science model:", "Claude Science 模型："),
         ("effort:", "推理强度："),
-        ("workbench provider:", "第三方服务商："),
-        ("workbench model:", "第三方模型："),
-        ("workbench key:", "第三方 API Key："),
         ("helper:", "后台服务："),
         ("autostart:", "自启动："),
         ("runtime patch:", "运行时补丁："),
@@ -1470,7 +886,6 @@ def localize_cli_output(text: str, lang: str) -> str:
         ("installed", "已安装"),
         ("loaded", "已加载"),
         ("missing", "缺失"),
-        ("configured", "已配置"),
         ("not found under", "未找到，已搜索"),
         ("no model", "没有模型"),
     ]
@@ -1500,16 +915,6 @@ def gui_open_science(lang: str) -> tuple[int, str]:
     return code, text
 
 
-def gui_open_workbench(lang: str) -> tuple[int, str]:
-    def action() -> int:
-        url = open_workbench(lang)
-        print(tr(lang, "opened_workbench", url=url))
-        return 0
-
-    code, text = capture_output(action)
-    return code, text
-
-
 def gui_uninstall(lang: str) -> tuple[int, str]:
     code, text = capture_output(lambda: cmd_uninstall(argparse.Namespace(keep_agent=False)))
     return code, localize_cli_output(text, lang)
@@ -1527,8 +932,8 @@ def launch_gui() -> int:
 
     root = tk.Tk()
     root.title(f"ccscience-sync {VERSION}")
-    root.geometry("860x540")
-    root.minsize(760, 460)
+    root.geometry("720x520")
+    root.minsize(640, 440)
 
     title = ttk.Label(root, text="ccscience-sync", font=("TkDefaultFont", 18, "bold"))
     title.pack(anchor="w", padx=18, pady=(16, 4))
@@ -1603,11 +1008,6 @@ def launch_gui() -> int:
         text=tr(lang, "open_science"),
         command=lambda: run_action(tr(lang, "open_science_action"), lambda: gui_open_science(lang)),
     )
-    open_workbench_button = ttk.Button(
-        button_frame,
-        text=tr(lang, "open_workbench"),
-        command=lambda: run_action(tr(lang, "open_workbench_action"), lambda: gui_open_workbench(lang)),
-    )
     uninstall_button = ttk.Button(
         button_frame,
         text=tr(lang, "uninstall"),
@@ -1615,7 +1015,7 @@ def launch_gui() -> int:
     )
     quit_button = ttk.Button(button_frame, text=tr(lang, "quit"), command=root.destroy)
 
-    for button in (install_button, open_workbench_button, open_science_button, status_button, uninstall_button, quit_button):
+    for button in (install_button, open_science_button, status_button, uninstall_button, quit_button):
         button.pack(side="left", padx=(0, 8))
         buttons.append(button)
 
@@ -1656,11 +1056,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("open-science", help="open Claude Science with a fresh one-time URL")
     p.add_argument("--print-only", action="store_true", help="print the URL instead of opening a browser")
     p.set_defaults(func=cmd_open_science)
-
-    p = sub.add_parser("open-workbench", help="open the third-party model workbench")
-    p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    p.add_argument("--print-only", action="store_true", help="print the URL instead of opening a browser")
-    p.set_defaults(func=cmd_open_workbench)
 
     return parser
 

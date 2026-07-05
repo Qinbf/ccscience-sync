@@ -74,46 +74,6 @@ class ClaudeScienceUrlTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), ccscience_sync.tr("zh", "science_url_missing"))
 
 
-class WorkbenchTests(unittest.TestCase):
-    def test_maps_workbench_models(self):
-        config = {
-            "default_model": "deepseek-v4-flash",
-            "model_map": ccscience_sync.default_workbench_model_map(),
-        }
-        self.assertEqual(ccscience_sync.map_workbench_model("opus[1m]", config), "deepseek-v4-pro")
-        self.assertEqual(ccscience_sync.map_workbench_model("sonnet", config), "deepseek-v4-flash")
-
-    def test_reads_shell_export_value(self):
-        line = 'export DEEPSEEK_API_KEY="value with spaces"'
-        self.assertEqual(ccscience_sync.shell_export_value(line, "DEEPSEEK_API_KEY"), "value with spaces")
-        self.assertIsNone(ccscience_sync.shell_export_value("DEEPSEEK_API_KEY=value", "DEEPSEEK_API_KEY"))
-
-    def test_workbench_html_contains_chat_ui(self):
-        html = ccscience_sync.workbench_html("zh")
-        self.assertIn("第三方模型工作台", html)
-        self.assertIn('fetch("/chat"', html)
-        self.assertIn("/workbench-info", html)
-
-    def test_normalizes_messages(self):
-        messages = ccscience_sync.normalize_messages(
-            [
-                {"role": "user", "content": " hello "},
-                {"role": "tool", "content": "ignored"},
-                {"role": "assistant", "content": "world"},
-            ]
-        )
-        self.assertEqual(messages, [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "world"}])
-
-    def test_uses_fallback_port_when_old_helper_occupies_default(self):
-        supported: set[int] = set()
-
-        with mock.patch.object(ccscience_sync, "helper_supports_workbench", side_effect=lambda port: port in supported):
-            with mock.patch.object(ccscience_sync, "helper_is_running", side_effect=lambda port: port == 19783):
-                with mock.patch.object(ccscience_sync, "start_helper_background", side_effect=lambda port: supported.add(port)) as start:
-                    self.assertEqual(ccscience_sync.ensure_workbench_helper(19783), 19784)
-        start.assert_called_with(19784)
-
-
 class RuntimePatchTests(unittest.TestCase):
     def test_patch_and_unpatch_index(self):
         html = (

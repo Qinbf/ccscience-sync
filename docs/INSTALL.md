@@ -13,11 +13,6 @@ Use `Open Claude Science` in the app to generate a fresh local Claude Science
 URL. This helps avoid expired one-time nonce links, but it does not bypass
 Claude account login.
 
-Use `Third-Party Workbench` when the user does not have a Claude account. This
-mode opens a local web UI and calls an OpenAI-compatible provider with the
-user's own API key. By default it reads `DEEPSEEK_API_KEY` and calls
-`https://api.deepseek.com/chat/completions`.
-
 ## From Source
 
 ```sh
@@ -30,7 +25,6 @@ macOS:
 ```sh
 python3 ccscience_sync.py install
 python3 ccscience_sync.py status
-python3 ccscience_sync.py open-workbench
 ```
 
 Windows:
@@ -38,7 +32,6 @@ Windows:
 ```powershell
 py -3 .\ccscience_sync.py install
 py -3 .\ccscience_sync.py status
-py -3 .\ccscience_sync.py open-workbench
 ```
 
 ## What install does
