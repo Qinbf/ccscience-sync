@@ -1,5 +1,14 @@
 # Installation
 
+## Recommended: Desktop App
+
+Download the latest release:
+
+- macOS: <https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip>
+- Windows: <https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip>
+
+Unzip the file, open the app, then click `Install / Update`.
+
 ## From Source
 
 ```sh
@@ -7,25 +16,18 @@ git clone https://github.com/Qinbf/ccscience-sync.git
 cd ccscience-sync
 ```
 
-### macOS
+macOS:
 
 ```sh
 python3 ccscience_sync.py install
 python3 ccscience_sync.py status
 ```
 
-### Windows
+Windows:
 
 ```powershell
 py -3 .\ccscience_sync.py install
 py -3 .\ccscience_sync.py status
-```
-
-## From GitHub With pipx
-
-```sh
-pipx install git+https://github.com/Qinbf/ccscience-sync.git
-ccscience-sync install
 ```
 
 ## What install does
@@ -36,6 +38,10 @@ ccscience-sync install
 4. Installs user-level autostart:
    - macOS: `~/Library/LaunchAgents/io.github.ccscience-sync.helper.plist`
    - Windows: current user's Startup folder
+
+Packaged App/EXE builds copy themselves to a stable per-user application data
+directory before installing autostart, so users can delete the downloaded ZIP
+folder after installation.
 
 ## Troubleshooting
 
@@ -55,11 +61,3 @@ On Windows:
 $env:CLAUDE_SCIENCE_DATA_DIR = "C:\path\to\.claude-science"
 ccscience-sync install
 ```
-
-If the helper is not running:
-
-```sh
-ccscience-sync serve --port 19783
-```
-
-Then open Claude Science and start a new session.

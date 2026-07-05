@@ -10,9 +10,11 @@ new Claude Science requests carry the same model.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as _dt
 import glob
 import http.server
+import io
 import json
 import os
 import pathlib
@@ -21,13 +23,15 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+import traceback
 import urllib.request
 from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -44,6 +48,10 @@ def is_macos() -> bool:
 
 def is_windows() -> bool:
     return os.name == "nt"
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
 
 
 def claude_settings_path() -> pathlib.Path:
@@ -133,6 +141,51 @@ def log_path() -> pathlib.Path:
         return home() / "Library" / "Logs" / f"{APP_NAME}.log"
     base = _env_path("XDG_STATE_HOME") or (home() / ".local" / "state")
     return base / APP_NAME / f"{APP_NAME}.log"
+
+
+def current_app_bundle() -> pathlib.Path | None:
+    if not is_macos():
+        return None
+    executable = pathlib.Path(sys.executable).resolve()
+    for path in (executable, *executable.parents):
+        if path.suffix == ".app":
+            return path
+    return None
+
+
+def frozen_install_target() -> pathlib.Path:
+    if is_macos():
+        bundle = current_app_bundle()
+        if bundle:
+            return app_data_dir() / f"{APP_NAME}-{VERSION}.app"
+    if is_windows():
+        return app_data_dir() / f"{APP_NAME}-{VERSION}.exe"
+    return app_data_dir() / f"{APP_NAME}-{VERSION}"
+
+
+def executable_inside_app(app_path: pathlib.Path) -> pathlib.Path:
+    return app_path / "Contents" / "MacOS" / pathlib.Path(sys.executable).name
+
+
+def ensure_frozen_install_target() -> pathlib.Path:
+    executable = pathlib.Path(sys.executable).resolve()
+    if not is_frozen():
+        return executable
+
+    target = frozen_install_target()
+    if is_macos() and current_app_bundle():
+        source_app = current_app_bundle()
+        assert source_app is not None
+        target_executable = executable_inside_app(target)
+        if source_app.resolve() != target.resolve() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source_app, target)
+        return target_executable if target_executable.exists() else executable
+
+    if target.resolve() != executable and not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(executable, target)
+    return target if target.exists() else executable
 
 
 def load_json(path: pathlib.Path, default: Any) -> Any:
@@ -420,7 +473,9 @@ def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]
 
 
 def helper_command(port: int, background: bool = False) -> list[str]:
-    executable = pathlib.Path(sys.executable)
+    executable = ensure_frozen_install_target() if is_frozen() else pathlib.Path(sys.executable)
+    if is_frozen():
+        return [str(executable), "serve", "--port", str(port)]
     if background and is_windows() and executable.name.lower() == "python.exe":
         pythonw = executable.with_name("pythonw.exe")
         if pythonw.exists():
@@ -593,6 +648,122 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def capture_output(func: Any) -> tuple[int, str]:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code = 0
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            result = func()
+            code = int(result or 0)
+        except SystemExit as exc:
+            code = int(exc.code or 0) if isinstance(exc.code, int) else 1
+            if exc.code and not isinstance(exc.code, int):
+                print(exc.code, file=sys.stderr)
+        except Exception:
+            code = 1
+            traceback.print_exc()
+    output = stdout.getvalue()
+    errors = stderr.getvalue()
+    return code, (output + errors).strip()
+
+
+def gui_install() -> tuple[int, str]:
+    return capture_output(lambda: cmd_install(argparse.Namespace(port=DEFAULT_PORT, all=False, no_agent=False)))
+
+
+def gui_status() -> tuple[int, str]:
+    return capture_output(lambda: cmd_status(argparse.Namespace(port=DEFAULT_PORT)))
+
+
+def gui_uninstall() -> tuple[int, str]:
+    return capture_output(lambda: cmd_uninstall(argparse.Namespace(keep_agent=False)))
+
+
+def launch_gui() -> int:
+    try:
+        import tkinter as tk
+        from tkinter import messagebox, ttk
+    except Exception as exc:
+        print(f"Could not start GUI: {exc}", file=sys.stderr)
+        print("Run 'ccscience-sync install' from a terminal instead.", file=sys.stderr)
+        return 2
+
+    root = tk.Tk()
+    root.title(f"ccscience-sync {VERSION}")
+    root.geometry("720x520")
+    root.minsize(640, 440)
+
+    title = ttk.Label(root, text="ccscience-sync", font=("TkDefaultFont", 18, "bold"))
+    title.pack(anchor="w", padx=18, pady=(16, 4))
+
+    subtitle = ttk.Label(
+        root,
+        text="Sync the ccswitch / Claude Code model into new Claude Science sessions.",
+        wraplength=660,
+    )
+    subtitle.pack(anchor="w", padx=18, pady=(0, 14))
+
+    button_frame = ttk.Frame(root)
+    button_frame.pack(fill="x", padx=18, pady=(0, 10))
+
+    output = tk.Text(root, height=16, wrap="word")
+    output.pack(fill="both", expand=True, padx=18, pady=(0, 12))
+
+    status_var = tk.StringVar(value="Ready")
+    status = ttk.Label(root, textvariable=status_var)
+    status.pack(anchor="w", padx=18, pady=(0, 12))
+
+    buttons: list[ttk.Button] = []
+
+    def set_output(text: str) -> None:
+        output.configure(state="normal")
+        output.delete("1.0", "end")
+        output.insert("1.0", text or "(no output)")
+        output.configure(state="disabled")
+
+    def set_busy(is_busy: bool) -> None:
+        for button in buttons:
+            button.configure(state="disabled" if is_busy else "normal")
+
+    def run_action(label: str, action: Any) -> None:
+        status_var.set(f"{label}...")
+        set_busy(True)
+        set_output("")
+
+        def worker() -> None:
+            code, text = action()
+
+            def finish() -> None:
+                set_output(text)
+                set_busy(False)
+                if code == 0:
+                    status_var.set(f"{label} finished")
+                    if label == "Install":
+                        messagebox.showinfo("ccscience-sync", "Installed. Start a new Claude Science session.")
+                else:
+                    status_var.set(f"{label} failed")
+                    messagebox.showerror("ccscience-sync", text or f"{label} failed")
+
+            root.after(0, finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    install_button = ttk.Button(button_frame, text="Install / Update", command=lambda: run_action("Install", gui_install))
+    status_button = ttk.Button(button_frame, text="Check Status", command=lambda: run_action("Status", gui_status))
+    uninstall_button = ttk.Button(button_frame, text="Uninstall", command=lambda: run_action("Uninstall", gui_uninstall))
+    quit_button = ttk.Button(button_frame, text="Quit", command=root.destroy)
+
+    for button in (install_button, status_button, uninstall_button, quit_button):
+        button.pack(side="left", padx=(0, 8))
+        buttons.append(button)
+
+    set_output("Click Install / Update to set up ccscience-sync.\n\nAfter installing, change models in ccswitch or Claude Code, then start a new Claude Science session.")
+    root.after(200, lambda: run_action("Status", gui_status))
+    root.mainloop()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Sync ccswitch/Claude Code model into Claude Science")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -625,6 +796,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        return launch_gui()
     args = build_parser().parse_args(argv)
     return int(args.func(args) or 0)
 

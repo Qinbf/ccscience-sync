@@ -5,53 +5,41 @@
 Use the same model in Claude Science that you selected in ccswitch or Claude
 Code.
 
-If you are not a developer, start here. You only need to install it once.
+Most users do not need Python, Terminal, PowerShell, or source code. Download
+the app, open it, and click install.
 
-## Simple Setup
+## One-Click Install
 
 Before installing:
 
-1. Install Python 3.9 or newer.
-2. Open Claude Science once, then close it.
-3. Make sure ccswitch or Claude Code already has the model you want selected.
+1. Open Claude Science once, then close it.
+2. Make sure ccswitch or Claude Code already has the model you want selected.
 
-### Step 1: Download
+### macOS
 
-Download this project and unzip it:
+1. Download:
+   [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
+2. Unzip it.
+3. Open `ccscience-sync.app`.
+4. Click `Install / Update`.
 
-[Download ZIP](https://github.com/Qinbf/ccscience-sync/archive/refs/heads/main.zip)
+If macOS blocks the app, right-click it, choose `Open`, then confirm.
 
-### Step 2: Install
+### Windows
 
-macOS:
+1. Download:
+   [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
+2. Unzip it.
+3. Open `ccscience-sync.exe`.
+4. Click `Install / Update`.
 
-Double-click `install-macos.command`.
-
-Windows:
-
-Double-click `install-windows.bat`.
-
-### If Double-Click Does Not Work
-
-macOS Terminal:
-
-```sh
-cd ~/Downloads/ccscience-sync-main
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
-```
-
-Windows PowerShell:
-
-```powershell
-cd "$env:USERPROFILE\Downloads\ccscience-sync-main"
-py -3 .\ccscience_sync.py install
-py -3 .\ccscience_sync.py status
-```
+If Windows SmartScreen appears, choose `More info`, then `Run anyway`.
 
 ## How To Know It Worked
 
-`status` should show something like:
+In the app, click `Check Status`.
+
+You should see:
 
 ```text
 helper: running (...)
@@ -63,39 +51,35 @@ Science session, it should use the same model.
 
 ## Everyday Use
 
-After installation, there is nothing else to open.
+After installation, there is nothing else to keep open.
 
 1. Change model in ccswitch or Claude Code.
 2. Start a new Claude Science session.
 3. Claude Science uses the synced model automatically.
 
-If Claude Science updates, run `install` again.
+If Claude Science updates, open `ccscience-sync` again and click
+`Install / Update`.
 
 ## Uninstall
 
-macOS:
-
-Double-click `uninstall-macos.command`.
-
-Windows:
-
-Double-click `uninstall-windows.bat`.
+Open `ccscience-sync` and click `Uninstall`.
 
 ## Common Problems
 
-### Python command not found
-
-Install Python from [python.org](https://www.python.org/downloads/), then open
-a new Terminal or PowerShell window and try again.
-
 ### Claude Science runtime not found
 
-Open Claude Science once, close it, then run `install` again.
+Open Claude Science once, close it, then click `Install / Update` again.
 
 ### Model did not change
 
 Start a new Claude Science session. Existing sessions may keep the model they
 were created with.
+
+### The app is blocked by the operating system
+
+The current release is unsigned. macOS and Windows may show a security warning.
+This is expected for a small open-source app without paid code-signing
+certificates.
 
 ## What This Tool Does
 
@@ -106,29 +90,31 @@ Claude Science's new-session model locally.
 It does not read, store, print, upload, or document API keys, passwords, or
 tokens.
 
-## Advanced Usage
+## Advanced Usage From Source
 
-Install with `pipx`:
+Install Python 3.9 or newer, then run:
 
 ```sh
-pipx install git+https://github.com/Qinbf/ccscience-sync.git
-ccscience-sync install
-ccscience-sync status
+git clone https://github.com/Qinbf/ccscience-sync.git
+cd ccscience-sync
+python3 ccscience_sync.py
 ```
 
 Useful commands:
 
 ```sh
-ccscience-sync model
-ccscience-sync install
-ccscience-sync status
-ccscience-sync uninstall
+python3 ccscience_sync.py install
+python3 ccscience_sync.py status
+python3 ccscience_sync.py uninstall
 ```
 
-Direct source commands:
+Windows:
 
-- macOS: `python3 ccscience_sync.py <command>`
-- Windows: `py -3 .\ccscience_sync.py <command>`
+```powershell
+py -3 .\ccscience_sync.py install
+py -3 .\ccscience_sync.py status
+py -3 .\ccscience_sync.py uninstall
+```
 
 ## Custom Model Map
 

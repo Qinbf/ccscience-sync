@@ -22,12 +22,15 @@ git push -u origin main
 ## Release
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-GitHub Actions will run tests on macOS and Windows for pushes and pull
-requests.
+GitHub Actions will run tests, build the macOS and Windows desktop apps, create
+the GitHub Release if needed, and upload:
+
+- `ccscience-sync-macos.zip`
+- `ccscience-sync-windows.zip`
 
 ## Before Publishing
 

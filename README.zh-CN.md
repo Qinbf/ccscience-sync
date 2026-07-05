@@ -4,53 +4,41 @@
 
 让 Claude Science 自动使用你在 ccswitch 或 Claude Code 里选择的模型。
 
-如果你不是程序员，只看前面这几步就够了。这个工具只需要安装一次。
+普通用户不需要安装 Python，也不需要打开终端或 PowerShell。下载 App/EXE，
+打开后点一下安装即可。
 
-## 最简单安装
+## 一键安装
 
 安装前先确认：
 
-1. 电脑里已经安装 Python 3.9 或更新版本。
-2. Claude Science 至少打开过一次，然后可以先关掉。
-3. ccswitch 或 Claude Code 里已经选好了你想用的模型。
+1. Claude Science 至少打开过一次，然后可以先关掉。
+2. ccswitch 或 Claude Code 里已经选好了你想用的模型。
 
-### 第一步：下载
+### macOS
 
-下载这个项目并解压：
+1. 下载：
+   [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
+2. 解压 ZIP。
+3. 打开 `ccscience-sync.app`。
+4. 点击 `Install / Update`。
 
-[下载 ZIP](https://github.com/Qinbf/ccscience-sync/archive/refs/heads/main.zip)
+如果 macOS 拦截应用，请右键点击 App，选择 `Open`，再确认打开。
 
-### 第二步：安装
+### Windows
 
-macOS：
+1. 下载：
+   [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
+2. 解压 ZIP。
+3. 打开 `ccscience-sync.exe`。
+4. 点击 `Install / Update`。
 
-双击 `install-macos.command`。
-
-Windows：
-
-双击 `install-windows.bat`。
-
-### 如果双击不能运行
-
-macOS 终端：
-
-```sh
-cd ~/Downloads/ccscience-sync-main
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
-```
-
-Windows PowerShell：
-
-```powershell
-cd "$env:USERPROFILE\Downloads\ccscience-sync-main"
-py -3 .\ccscience_sync.py install
-py -3 .\ccscience_sync.py status
-```
+如果出现 Windows SmartScreen 提示，选择 `More info`，再点 `Run anyway`。
 
 ## 怎么判断成功了
 
-运行 `status` 后，看到类似下面两行就说明成功：
+在 App 里点击 `Check Status`。
+
+看到类似下面两行，就说明成功：
 
 ```text
 helper: running (...)
@@ -62,38 +50,32 @@ runtime patch: installed (...)
 
 ## 平时怎么用
 
-安装完成后，不需要再手动打开这个工具。
+安装完成后，不需要一直开着这个 App。
 
 1. 在 ccswitch 或 Claude Code 里切换模型。
 2. 新建 Claude Science 会话。
 3. Claude Science 会自动使用同步后的模型。
 
-如果 Claude Science 更新了，重新运行一次 `install`。
+如果 Claude Science 更新了，再打开 `ccscience-sync`，点击 `Install / Update`。
 
 ## 卸载
 
-macOS：
-
-双击 `uninstall-macos.command`。
-
-Windows：
-
-双击 `uninstall-windows.bat`。
+打开 `ccscience-sync`，点击 `Uninstall`。
 
 ## 常见问题
 
-### 提示找不到 python 或 py
-
-去 [python.org](https://www.python.org/downloads/) 安装 Python，然后重新打开
-终端或 PowerShell，再运行安装命令。
-
 ### 提示找不到 Claude Science runtime
 
-先打开一次 Claude Science，再关闭，然后重新运行 `install`。
+先打开一次 Claude Science，再关闭，然后重新点击 `Install / Update`。
 
 ### 模型没有立刻变化
 
 请新建一个 Claude Science 会话。已经打开的旧会话可能会继续使用创建时的模型。
+
+### 系统提示应用有风险或无法验证
+
+当前版本还没有做商业代码签名。macOS 和 Windows 可能会提示安全警告。
+这是小型开源工具常见的情况，不代表程序会读取或上传你的密钥。
 
 ## 这个工具做了什么
 
@@ -103,29 +85,32 @@ Windows：
 
 它不会读取、保存、打印、上传或在文档中记录 API key、密码、token 或其他凭据。
 
-## 进阶用法
+## 从源码运行
 
-用 `pipx` 安装：
+如果你是开发者，或者不想使用打包好的 App/EXE，可以安装 Python 3.9 或更新版本，
+然后运行：
 
 ```sh
-pipx install git+https://github.com/Qinbf/ccscience-sync.git
-ccscience-sync install
-ccscience-sync status
+git clone https://github.com/Qinbf/ccscience-sync.git
+cd ccscience-sync
+python3 ccscience_sync.py
 ```
 
 常用命令：
 
 ```sh
-ccscience-sync model
-ccscience-sync install
-ccscience-sync status
-ccscience-sync uninstall
+python3 ccscience_sync.py install
+python3 ccscience_sync.py status
+python3 ccscience_sync.py uninstall
 ```
 
-直接从源码运行时：
+Windows：
 
-- macOS：`python3 ccscience_sync.py <command>`
-- Windows：`py -3 .\ccscience_sync.py <command>`
+```powershell
+py -3 .\ccscience_sync.py install
+py -3 .\ccscience_sync.py status
+py -3 .\ccscience_sync.py uninstall
+```
 
 ## 自定义模型映射
 
