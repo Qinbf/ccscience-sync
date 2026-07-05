@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ccscience-sync"
-version = "0.2.2"
+version = "0.2.3"
 description = "Sync ccswitch or Claude Code model settings into Claude Science."
 readme = "README.md"
 requires-python = ">=3.9"

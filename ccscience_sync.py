@@ -16,6 +16,7 @@ import glob
 import http.server
 import io
 import json
+import locale
 import os
 import pathlib
 import plistlib
@@ -31,7 +32,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -52,6 +53,111 @@ def is_windows() -> bool:
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
+
+
+def locale_candidates() -> list[str]:
+    candidates: list[str] = []
+    for name in ("CCSCIENCE_SYNC_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(name)
+        if value:
+            candidates.append(value)
+
+    for category in (getattr(locale, "LC_MESSAGES", None), locale.LC_CTYPE):
+        if category is None:
+            continue
+        with contextlib.suppress(Exception):
+            value = locale.getlocale(category)[0]
+            if value:
+                candidates.append(value)
+
+    with contextlib.suppress(Exception):
+        value = locale.getlocale()[0]
+        if value:
+            candidates.append(value)
+
+    if is_macos():
+        with contextlib.suppress(Exception):
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleLanguages"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=1,
+            )
+            if result.stdout:
+                for line in result.stdout.splitlines():
+                    value = line.strip().strip('",')
+                    if value and value not in ("(", ")"):
+                        candidates.append(value)
+                        break
+
+    return candidates
+
+
+def detect_language(value: str | None = None) -> str:
+    candidates = [value] if value is not None else locale_candidates()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        normalized = candidate.strip().lower().replace("_", "-")
+        if normalized.startswith(("zh", "chinese")) or any(
+            token in normalized for token in ("zh-", "zh.", "hans", "hant", "simplified chinese", "traditional chinese")
+        ):
+            return "zh"
+    return "en"
+
+
+TEXT = {
+    "en": {
+        "subtitle": "Install once. New Claude Science sessions will use the latest model selected in ccswitch / Claude Code.",
+        "ready": "Ready",
+        "install": "Install / Update",
+        "status": "Check Status",
+        "uninstall": "Uninstall",
+        "quit": "Quit",
+        "install_action": "Install",
+        "status_action": "Status",
+        "uninstall_action": "Uninstall",
+        "finished": "{action} finished",
+        "failed": "{action} failed",
+        "installed_message": "Installed. You do not need to reinstall when switching models.",
+        "no_output": "(no output)",
+        "initial": (
+            "Click Install / Update once to set up ccscience-sync.\n\n"
+            "After installing, change models in ccswitch or Claude Code, then start a new Claude Science session. "
+            "You do not need to reinstall after model changes."
+        ),
+        "gui_error": "Could not start GUI: {error}",
+        "gui_fallback": "Run 'ccscience-sync install' from a terminal instead.",
+    },
+    "zh": {
+        "subtitle": "安装一次即可。Claude Science 新会话会自动使用 ccswitch / Claude Code 中最新选择的模型。",
+        "ready": "就绪",
+        "install": "安装 / 更新",
+        "status": "检查状态",
+        "uninstall": "卸载",
+        "quit": "退出",
+        "install_action": "安装",
+        "status_action": "状态检查",
+        "uninstall_action": "卸载",
+        "finished": "{action}完成",
+        "failed": "{action}失败",
+        "installed_message": "已安装。以后切换模型不需要重新安装。",
+        "no_output": "（没有输出）",
+        "initial": (
+            "点击“安装 / 更新”完成一次性设置。\n\n"
+            "安装后，在 ccswitch 或 Claude Code 中切换模型，然后新建 Claude Science 会话即可。"
+            "切换模型后不需要重新安装。"
+        ),
+        "gui_error": "无法启动图形界面：{error}",
+        "gui_fallback": "请改用终端运行 ccscience-sync install。",
+    },
+}
+
+
+def tr(lang: str, key: str, **kwargs: Any) -> str:
+    template = TEXT.get(lang, TEXT["en"]).get(key, TEXT["en"][key])
+    return template.format(**kwargs)
 
 
 def claude_settings_path() -> pathlib.Path:
@@ -698,25 +804,59 @@ def capture_output(func: Any) -> tuple[int, str]:
     return code, (output + errors).strip()
 
 
-def gui_install() -> tuple[int, str]:
-    return capture_output(lambda: cmd_install(argparse.Namespace(port=DEFAULT_PORT, all=False, no_agent=False)))
+def localize_cli_output(text: str, lang: str) -> str:
+    if lang != "zh":
+        return text
+    replacements = [
+        ("source model:", "来源模型："),
+        ("science model:", "Claude Science 模型："),
+        ("effort:", "推理强度："),
+        ("helper:", "后台服务："),
+        ("autostart:", "自启动："),
+        ("runtime patch:", "运行时补丁："),
+        ("runtime:", "运行时："),
+        ("updated:", "已更新："),
+        ("not-installed:", "未安装："),
+        ("installed:", "已安装："),
+        ("removed:", "已移除："),
+        ("not-running", "未运行"),
+        ("not-installed", "未安装"),
+        ("running", "运行中"),
+        ("installed", "已安装"),
+        ("loaded", "已加载"),
+        ("missing", "缺失"),
+        ("not found under", "未找到，已搜索"),
+        ("no model", "没有模型"),
+    ]
+    localized = text
+    for old, new in replacements:
+        localized = localized.replace(old, new)
+    return localized.replace("： ", "：")
 
 
-def gui_status() -> tuple[int, str]:
-    return capture_output(lambda: cmd_status(argparse.Namespace(port=DEFAULT_PORT)))
+def gui_install(lang: str) -> tuple[int, str]:
+    code, text = capture_output(lambda: cmd_install(argparse.Namespace(port=DEFAULT_PORT, all=False, no_agent=False)))
+    return code, localize_cli_output(text, lang)
 
 
-def gui_uninstall() -> tuple[int, str]:
-    return capture_output(lambda: cmd_uninstall(argparse.Namespace(keep_agent=False)))
+def gui_status(lang: str) -> tuple[int, str]:
+    code, text = capture_output(lambda: cmd_status(argparse.Namespace(port=DEFAULT_PORT)))
+    return code, localize_cli_output(text, lang)
+
+
+def gui_uninstall(lang: str) -> tuple[int, str]:
+    code, text = capture_output(lambda: cmd_uninstall(argparse.Namespace(keep_agent=False)))
+    return code, localize_cli_output(text, lang)
 
 
 def launch_gui() -> int:
+    lang = detect_language()
     try:
         import tkinter as tk
         from tkinter import messagebox, ttk
     except Exception as exc:
-        print(f"Could not start GUI: {exc}", file=sys.stderr)
-        print("Run 'ccscience-sync install' from a terminal instead.", file=sys.stderr)
+        print(tr(lang, "gui_error", error=exc), file=sys.stderr)
+        print(tr(lang, "gui_fallback"), file=sys.stderr)
         return 2
 
     root = tk.Tk()
@@ -729,7 +869,7 @@ def launch_gui() -> int:
 
     subtitle = ttk.Label(
         root,
-        text="Install once. New Claude Science sessions will use the latest model selected in ccswitch / Claude Code.",
+        text=tr(lang, "subtitle"),
         wraplength=660,
     )
     subtitle.pack(anchor="w", padx=18, pady=(0, 14))
@@ -740,7 +880,7 @@ def launch_gui() -> int:
     output = tk.Text(root, height=16, wrap="word")
     output.pack(fill="both", expand=True, padx=18, pady=(0, 12))
 
-    status_var = tk.StringVar(value="Ready")
+    status_var = tk.StringVar(value=tr(lang, "ready"))
     status = ttk.Label(root, textvariable=status_var)
     status.pack(anchor="w", padx=18, pady=(0, 12))
 
@@ -749,7 +889,7 @@ def launch_gui() -> int:
     def set_output(text: str) -> None:
         output.configure(state="normal")
         output.delete("1.0", "end")
-        output.insert("1.0", text or "(no output)")
+        output.insert("1.0", text or tr(lang, "no_output"))
         output.configure(state="disabled")
 
     def set_busy(is_busy: bool) -> None:
@@ -768,35 +908,43 @@ def launch_gui() -> int:
                 set_output(text)
                 set_busy(False)
                 if code == 0:
-                    status_var.set(f"{label} finished")
-                    if label == "Install":
+                    status_var.set(tr(lang, "finished", action=label))
+                    if label == tr(lang, "install_action"):
                         messagebox.showinfo(
                             "ccscience-sync",
-                            "Installed. You do not need to reinstall when switching models.",
+                            tr(lang, "installed_message"),
                         )
                 else:
-                    status_var.set(f"{label} failed")
-                    messagebox.showerror("ccscience-sync", text or f"{label} failed")
+                    status_var.set(tr(lang, "failed", action=label))
+                    messagebox.showerror("ccscience-sync", text or tr(lang, "failed", action=label))
 
             root.after(0, finish)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    install_button = ttk.Button(button_frame, text="Install / Update", command=lambda: run_action("Install", gui_install))
-    status_button = ttk.Button(button_frame, text="Check Status", command=lambda: run_action("Status", gui_status))
-    uninstall_button = ttk.Button(button_frame, text="Uninstall", command=lambda: run_action("Uninstall", gui_uninstall))
-    quit_button = ttk.Button(button_frame, text="Quit", command=root.destroy)
+    install_button = ttk.Button(
+        button_frame,
+        text=tr(lang, "install"),
+        command=lambda: run_action(tr(lang, "install_action"), lambda: gui_install(lang)),
+    )
+    status_button = ttk.Button(
+        button_frame,
+        text=tr(lang, "status"),
+        command=lambda: run_action(tr(lang, "status_action"), lambda: gui_status(lang)),
+    )
+    uninstall_button = ttk.Button(
+        button_frame,
+        text=tr(lang, "uninstall"),
+        command=lambda: run_action(tr(lang, "uninstall_action"), lambda: gui_uninstall(lang)),
+    )
+    quit_button = ttk.Button(button_frame, text=tr(lang, "quit"), command=root.destroy)
 
     for button in (install_button, status_button, uninstall_button, quit_button):
         button.pack(side="left", padx=(0, 8))
         buttons.append(button)
 
-    set_output(
-        "Click Install / Update once to set up ccscience-sync.\n\n"
-        "After installing, change models in ccswitch or Claude Code, then start a new Claude Science session. "
-        "You do not need to reinstall after model changes."
-    )
-    root.after(200, lambda: run_action("Status", gui_status))
+    set_output(tr(lang, "initial"))
+    root.after(200, lambda: run_action(tr(lang, "status_action"), lambda: gui_status(lang)))
     root.mainloop()
     return 0
 

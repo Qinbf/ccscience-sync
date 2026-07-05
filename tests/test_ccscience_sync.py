@@ -22,6 +22,23 @@ class ModelMappingTests(unittest.TestCase):
         self.assertIsNone(ccscience_sync.map_effort("unknown"))
 
 
+class LocalizationTests(unittest.TestCase):
+    def test_detects_chinese_locales(self):
+        self.assertEqual(ccscience_sync.detect_language("zh_CN.UTF-8"), "zh")
+        self.assertEqual(ccscience_sync.detect_language("zh-Hans-CN"), "zh")
+        self.assertEqual(ccscience_sync.detect_language("zh_TW"), "zh")
+
+    def test_defaults_non_chinese_to_english(self):
+        self.assertEqual(ccscience_sync.detect_language("en_US.UTF-8"), "en")
+        self.assertEqual(ccscience_sync.detect_language("ja_JP.UTF-8"), "en")
+
+    def test_localizes_gui_status_output(self):
+        text = "helper: running (claude-opus-4-8)\nruntime patch: installed (/tmp/index.html)"
+        localized = ccscience_sync.localize_cli_output(text, "zh")
+        self.assertIn("后台服务：运行中", localized)
+        self.assertIn("运行时补丁：已安装", localized)
+
+
 class RuntimePatchTests(unittest.TestCase):
     def test_patch_and_unpatch_index(self):
         html = (

@@ -8,6 +8,9 @@ Code.
 Most users do not need Python, Terminal, PowerShell, or source code. Download
 the app, open it, and click install.
 
+The desktop app automatically uses Chinese on Chinese systems and English on
+other systems.
+
 ## One-Click Install
 
 Before installing:
