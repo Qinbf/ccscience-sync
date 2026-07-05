@@ -45,6 +45,8 @@ class RuntimePatchTests(unittest.TestCase):
         script = ccscience_sync.injection_script(19783)
         self.assertIn("originalFetch.call(window, endpoint", script)
         self.assertIn("patchRequest(input, init)", script)
+        self.assertIn('window.addEventListener("focus", scheduleSync)', script)
+        self.assertNotIn("setInterval(syncAsync, 5000)", script)
 
 
 if __name__ == "__main__":

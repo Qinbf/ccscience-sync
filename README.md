@@ -93,6 +93,10 @@ certificates.
 `~/.claude/settings.json`, maps it to a Claude Science model ID, and updates
 Claude Science's new-session model locally.
 
+It does not rely on a fixed 5-second polling loop. Claude Science refreshes
+the model when the page becomes active, when you interact with it, and right
+before a new-session request is sent.
+
 It does not read, store, print, upload, or document API keys, passwords, or
 tokens.
 

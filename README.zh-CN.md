@@ -89,6 +89,9 @@ ccswitch 或 Claude Code 切换模型后，不需要重装 `ccscience-sync`。
 `~/.claude/settings.json` 里的当前模型，把它转换成 Claude Science 使用的
 模型 ID，然后在本机把 Claude Science 新会话的模型同步过去。
 
+它不是固定每 5 秒傻刷。Claude Science 页面重新变为活跃、用户点击或按键、
+以及新建会话请求发出前，都会刷新一次最新模型。
+
 它不会读取、保存、打印、上传或在文档中记录 API key、密码、token 或其他凭据。
 
 ## 从源码运行

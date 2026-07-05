@@ -31,7 +31,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -300,6 +300,7 @@ def injection_script(port: int) -> str:
         var effortKey = "operon-default-effort";
         var currentModel = null;
         var currentEffort = null;
+        var syncTimer = null;
 
         function apply(payload) {{
           if (!payload || !payload.model) return;
@@ -330,6 +331,14 @@ def injection_script(port: int) -> str:
               .then(apply)
               .catch(function () {{}});
           }} catch (e) {{}}
+        }}
+
+        function scheduleSync() {{
+          if (syncTimer) return;
+          syncTimer = setTimeout(function () {{
+            syncTimer = null;
+            syncAsync();
+          }}, 50);
         }}
 
         function modelFromStorage() {{
@@ -367,7 +376,14 @@ def injection_script(port: int) -> str:
         }}
 
         syncBlocking();
-        setInterval(syncAsync, 5000);
+        try {{ window.addEventListener("focus", scheduleSync); }} catch (e) {{}}
+        try {{
+          document.addEventListener("visibilitychange", function () {{
+            if (!document.hidden) scheduleSync();
+          }});
+        }} catch (e) {{}}
+        try {{ document.addEventListener("pointerdown", scheduleSync, true); }} catch (e) {{}}
+        try {{ document.addEventListener("keydown", scheduleSync, true); }} catch (e) {{}}
 
         var originalFetch = window.fetch;
         if (originalFetch && !originalFetch.__ccscienceSyncPatched) {{
