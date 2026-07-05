@@ -1,24 +1,24 @@
 # ccscience-sync
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 Sync the model selected by ccswitch or Claude Code into Claude Science.
 
-Claude Code stores the active model in `~/.claude/settings.json`. Claude
-Science stores its default model in browser local storage and sends the model
-as a JSON request field when a new session starts. `ccscience-sync` bridges
-those two places with a small localhost helper and a reversible patch to Claude
-Science's web entrypoint.
+`ccscience-sync` is a small local bridge for users who switch Claude Code
+models with ccswitch and want new Claude Science sessions to use the same
+model automatically.
 
-No API keys, passwords, or tokens are read, stored, printed, or uploaded.
+It does not read, store, print, upload, or document API keys, passwords, or
+tokens.
 
-## Features
+## What It Does
 
-- Works on macOS and Windows.
-- Installs without administrator permissions.
-- Uses only the Python standard library.
-- Starts a local helper at `127.0.0.1:19783`.
-- Patches Claude Science runtime files with clear start/end markers.
-- Supports custom model mapping through `~/.ccscience-sync.json`.
-- Provides one-command install, status, and uninstall.
+- Reads the active Claude Code model from `~/.claude/settings.json`.
+- Maps that model to the model IDs used by Claude Science.
+- Starts a localhost helper at `127.0.0.1:19783`.
+- Applies a reversible patch to Claude Science's web runtime.
+- Keeps Claude Science's default model and new-session request model in sync.
+- Supports macOS and Windows without administrator permissions.
 
 ## Requirements
 
@@ -26,37 +26,32 @@ No API keys, passwords, or tokens are read, stored, printed, or uploaded.
 - Claude Code or ccswitch writing `~/.claude/settings.json`.
 - Claude Science installed and launched at least once.
 
-## Quick Start
+## Quick Install
 
-Clone the repository, then run:
-
-### macOS
-
-```sh
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
-```
-
-The installer creates a user LaunchAgent and patches the newest Claude Science
-runtime.
-
-### Windows
-
-```powershell
-py -3 .\ccscience_sync.py install
-py -3 .\ccscience_sync.py status
-```
-
-The installer creates a hidden startup entry in the current user's Startup
-folder and patches the newest Claude Science runtime.
-
-## Install With pipx
-
-After this project is published on GitHub:
+With `pipx`:
 
 ```sh
 pipx install git+https://github.com/Qinbf/ccscience-sync.git
 ccscience-sync install
+ccscience-sync status
+```
+
+From source:
+
+```sh
+git clone https://github.com/Qinbf/ccscience-sync.git
+cd ccscience-sync
+python3 ccscience_sync.py install
+python3 ccscience_sync.py status
+```
+
+On Windows, use PowerShell:
+
+```powershell
+git clone https://github.com/Qinbf/ccscience-sync.git
+cd ccscience-sync
+py -3 .\ccscience_sync.py install
+py -3 .\ccscience_sync.py status
 ```
 
 ## Commands
@@ -71,13 +66,15 @@ ccscience-sync status
 ccscience-sync uninstall
 ```
 
-If you run directly from source, replace `ccscience-sync` with:
+If you run directly from source, replace `ccscience-sync` with
+`python3 ccscience_sync.py`. On Windows, use `py -3 .\ccscience_sync.py`.
 
-```sh
-python3 ccscience_sync.py
-```
+## Platform Behavior
 
-On Windows, use `py -3 .\ccscience_sync.py`.
+| Platform | Autostart method | Admin required |
+| --- | --- | --- |
+| macOS | User LaunchAgent | No |
+| Windows | Current user's Startup folder | No |
 
 ## Custom Model Map
 
@@ -92,7 +89,7 @@ Create `~/.ccscience-sync.json`:
 }
 ```
 
-The default mapping is intentionally conservative:
+Default mapping:
 
 | Source model contains | Claude Science model |
 | --- | --- |
@@ -104,14 +101,15 @@ The default mapping is intentionally conservative:
 
 ## Claude Science Data Directory
 
-If Claude Science stores runtime files somewhere unusual, set:
+If Claude Science stores runtime files somewhere unusual, set
+`CLAUDE_SCIENCE_DATA_DIR` before installing:
 
 ```sh
 export CLAUDE_SCIENCE_DATA_DIR="/path/to/.claude-science"
 ccscience-sync install
 ```
 
-On Windows PowerShell:
+PowerShell:
 
 ```powershell
 $env:CLAUDE_SCIENCE_DATA_DIR = "C:\path\to\.claude-science"
@@ -135,6 +133,19 @@ ccscience-sync uninstall
 This removes the runtime patch and the helper autostart entry. It does not
 modify Claude Code settings, ccswitch settings, or API credentials.
 
+## How It Works
+
+Claude Code stores its current model in `~/.claude/settings.json`. Claude
+Science stores a default model in browser local storage and sends a `model`
+field when starting a new session. `ccscience-sync` bridges those two local
+places with:
+
+- a tiny localhost JSON endpoint that exposes the mapped model; and
+- a marked script patch in Claude Science's `web-dist/index.html`.
+
+The patch is wrapped with `ccscience-sync:start` and `ccscience-sync:end`
+markers, so it can be updated or removed safely.
+
 ## Development
 
 ```sh
@@ -144,8 +155,8 @@ python3 -m py_compile ccscience_sync.py
 
 ## Security
 
-`ccscience-sync` only reads model metadata from local settings files. Do not
-open issues or pull requests containing API keys or credentials.
+`ccscience-sync` only reads local model metadata. Please do not open issues or
+pull requests containing API keys, passwords, tokens, or private credentials.
 
 ## License
 
