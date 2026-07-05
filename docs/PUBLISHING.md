@@ -21,9 +21,12 @@ git push -u origin main
 
 ## Release
 
+Tag pushes run the full test matrix first. The desktop apps are built and
+uploaded only after all tests pass.
+
 ```sh
-git tag v0.2.4
-git push origin v0.2.4
+git tag v0.2.5
+git push origin v0.2.5
 ```
 
 GitHub Actions will run tests, build the macOS and Windows desktop apps, create

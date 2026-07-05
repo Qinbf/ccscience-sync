@@ -33,7 +33,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 DEFAULT_PORT = 19783
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
@@ -948,7 +948,7 @@ def launch_gui() -> int:
     button_frame = ttk.Frame(root)
     button_frame.pack(fill="x", padx=18, pady=(0, 10))
 
-    output = tk.Text(root, height=16, wrap="word")
+    output = tk.Text(root, height=16, wrap="char")
     output.pack(fill="both", expand=True, padx=18, pady=(0, 12))
 
     status_var = tk.StringVar(value=tr(lang, "ready"))
