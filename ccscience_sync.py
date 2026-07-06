@@ -44,7 +44,7 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 DEFAULT_PORT = 19783
 THIRDPARTY_FWD_PORT = 19784  # our own hidden normalizing forwarder (no CSSwitch)
 THIRDPARTY_FWD_REVISION = 7
@@ -83,6 +83,24 @@ def is_windows() -> bool:
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
+
+
+def resource_path(name: str) -> pathlib.Path | None:
+    """Locate a bundled data file both when running from source and when frozen.
+
+    PyInstaller unpacks --add-data files into sys._MEIPASS; from source they live
+    under ``assets/`` next to this module. Returns None if the file is absent so
+    callers can degrade gracefully (e.g. skip setting a window icon).
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    candidates = []
+    if meipass:
+        candidates.append(pathlib.Path(meipass) / name)
+    candidates.append(pathlib.Path(__file__).resolve().parent / "assets" / name)
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
 
 
 def locale_candidates() -> list[str]:
@@ -3562,6 +3580,16 @@ def launch_gui() -> int:
     root.title(f"ccscience-sync {VERSION}")
     root.geometry("720x520")
     root.minsize(640, 440)
+
+    # Give the window / Dock / taskbar the app icon. On packaged macOS the .app
+    # already gets its icon from the bundled .icns; iconphoto covers the source
+    # run and the Windows title bar / taskbar. Best-effort: never block the GUI.
+    with contextlib.suppress(Exception):
+        icon_file = resource_path("icon.png")
+        if icon_file is not None:
+            icon_image = tk.PhotoImage(file=str(icon_file))
+            root.iconphoto(True, icon_image)
+            root._app_icon = icon_image  # keep a reference so Tk doesn't GC it
 
     title = ttk.Label(root, text="ccscience-sync", font=("TkDefaultFont", 18, "bold"))
     title.pack(anchor="w", padx=18, pady=(16, 4))

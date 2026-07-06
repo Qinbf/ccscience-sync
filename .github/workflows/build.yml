@@ -72,6 +72,8 @@ jobs:
         run: |
           VER=$(python -c "import ccscience_sync as m; print(m.VERSION)")
           pyinstaller --noconfirm --clean --windowed --name ccscience-sync \
+            --icon assets/icon.icns \
+            --add-data "assets/icon.png:." \
             --osx-bundle-identifier io.github.ccscience-sync ccscience_sync.py
           # PyInstaller stamps CFBundleShortVersionString as 0.0.0 and may omit
           # CFBundleVersion entirely; set/add the real version so Finder
@@ -91,7 +93,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name ccscience-sync ccscience_sync.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name ccscience-sync `
+            --icon assets/icon.ico `
+            --add-data "assets/icon.png;." ccscience_sync.py
           Compress-Archive -Path dist\ccscience-sync.exe -DestinationPath "dist\${{ matrix.artifact }}" -Force
 
       - uses: actions/upload-artifact@v4
