@@ -1,4 +1,4 @@
-# ccscience-sync
+# ccscience
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -21,12 +21,12 @@ Before installing:
 
 Then download and open this app:
 
-- macOS: [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
-- Windows: [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
+- macOS: download the latest macOS build from [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest)
+- Windows: download the latest Windows build from [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest)
 
 Click **`Install / Update`**.
 
-<img src="docs/images/user-guide-01-main.png" alt="ccscience-sync main window" width="720">
+<img src="docs/images/user-guide-01-main.png" alt="ccscience main window" width="720">
 
 After installation, click **`Check Status`**. These lines mean it is ready:
 
@@ -82,8 +82,8 @@ Open the app and click **`Uninstall`**.
 ## Run From Source
 
 ```sh
-git clone https://github.com/Qinbf/ccscience-sync.git
-cd ccscience-sync
+git clone https://github.com/Qinbf/ccscience-sync.git ccscience
+cd ccscience
 python3 ccscience_sync.py
 ```
 

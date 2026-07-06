@@ -8,7 +8,7 @@ Choose an owner and repository name, then run:
 git init
 git add .
 git commit -m "Initial release"
-gh repo create ccscience-sync --public --source=. --remote=origin --push
+gh repo create ccscience --public --source=. --remote=origin --push
 ```
 
 If the repository already exists:
@@ -32,11 +32,11 @@ git push origin v0.2.6
 GitHub Actions will run tests, build the macOS and Windows desktop apps, create
 the GitHub Release if needed, and upload:
 
-- `ccscience-sync-macos.zip`
-- `ccscience-sync-windows.zip`
+- `ccscience-macos.zip`
+- `ccscience-windows.zip`
 
 ## Before Publishing
 
 - Run local tests.
-- Verify `ccscience-sync uninstall` and `ccscience-sync install` on a clean
+- Verify `ccscience uninstall` and `ccscience install` on a clean
   machine or VM when possible.

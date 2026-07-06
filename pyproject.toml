@@ -3,14 +3,14 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ccscience-sync"
+name = "ccscience"
 version = "0.5.1"
-description = "Sync ccswitch or Claude Code model settings into Claude Science."
+description = "Use the selected CC.Switch or Claude Code model in Claude Science."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [
-  { name = "ccscience-sync contributors" }
+  { name = "ccscience contributors" }
 ]
 keywords = ["claude", "claude-code", "ccswitch", "claude-science"]
 classifiers = [
@@ -36,7 +36,7 @@ Homepage = "https://github.com/Qinbf/ccscience-sync"
 Issues = "https://github.com/Qinbf/ccscience-sync/issues"
 
 [project.scripts]
-ccscience-sync = "ccscience_sync:main"
+ccscience = "ccscience_sync:main"
 
 [tool.setuptools]
 py-modules = ["ccscience_sync"]

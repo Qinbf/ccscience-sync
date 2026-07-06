@@ -1,4 +1,4 @@
-# ccscience-sync
+# ccscience
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -21,12 +21,12 @@
 
 然后下载并打开本工具：
 
-- macOS：[ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
-- Windows：[ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
+- macOS：到 [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest) 下载最新版 macOS 构建
+- Windows：到 [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest) 下载最新版 Windows 构建
 
 打开后点击 **「① 一键安装 / 更新」**。
 
-<img src="docs/images/user-guide-01-main.png" alt="ccscience-sync 主界面" width="720">
+<img src="docs/images/user-guide-01-main.png" alt="ccscience 主界面" width="720">
 
 安装完成后，点击 **「检查状态」**。看到下面两项就说明可以用了：
 
@@ -82,8 +82,8 @@
 ## 从源码运行
 
 ```sh
-git clone https://github.com/Qinbf/ccscience-sync.git
-cd ccscience-sync
+git clone https://github.com/Qinbf/ccscience-sync.git ccscience
+cd ccscience
 python3 ccscience_sync.py
 ```
 

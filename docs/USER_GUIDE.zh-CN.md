@@ -1,10 +1,10 @@
-# ccscience-sync 快速使用说明
+# ccscience 快速使用说明
 
 这份说明只讲最常用流程。先打开过一次 Claude Science，并在 CC.Switch 里选好模型。
 
 ## 1. 打开软件
 
-macOS 打开 `ccscience-sync.app`，Windows 打开 `ccscience-sync.exe`。源码运行：
+macOS 打开 `ccscience.app`，Windows 打开 `ccscience.exe`。源码运行：
 
 ```sh
 python3 ccscience_sync.py
@@ -12,7 +12,7 @@ python3 ccscience_sync.py
 
 主界面如下：
 
-![ccscience-sync 主界面](images/user-guide-01-main.png)
+![ccscience 主界面](images/user-guide-01-main.png)
 
 常用按钮：
 

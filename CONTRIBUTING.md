@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve ccscience-sync.
+Thanks for helping improve ccscience.
 
 ## Local Checks
 
@@ -23,5 +23,5 @@ Please include:
 
 - Operating system and version.
 - Python version.
-- `ccscience-sync --version`.
-- `ccscience-sync status` output, with any private paths redacted if desired.
+- `ccscience --version`.
+- `ccscience status` output, with any private paths redacted if desired.

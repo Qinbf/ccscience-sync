@@ -1,10 +1,10 @@
-# ccscience-sync Quick Guide
+# ccscience Quick Guide
 
 This guide covers the common path only. Open Claude Science once first, then choose your model in CC.Switch.
 
 ## 1. Open The App
 
-Open `ccscience-sync.app` on macOS or `ccscience-sync.exe` on Windows. From source:
+Open `ccscience.app` on macOS or `ccscience.exe` on Windows. From source:
 
 ```sh
 python3 ccscience_sync.py
@@ -12,7 +12,7 @@ python3 ccscience_sync.py
 
 Main window:
 
-![ccscience-sync main window](images/user-guide-01-main.png)
+![ccscience main window](images/user-guide-01-main.png)
 
 Useful buttons:
 

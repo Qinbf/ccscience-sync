@@ -39,7 +39,7 @@ jobs:
         run: |
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "ccscience-sync $TAG" \
+              --title "ccscience $TAG" \
               --notes "Desktop app release with one-click install."
 
   build:
@@ -53,9 +53,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: ccscience-sync-macos.zip
+            artifact: ccscience-macos.zip
           - os: windows-latest
-            artifact: ccscience-sync-windows.zip
+            artifact: ccscience-windows.zip
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -71,14 +71,14 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           VER=$(python -c "import ccscience_sync as m; print(m.VERSION)")
-          pyinstaller --noconfirm --clean --windowed --name ccscience-sync \
+          pyinstaller --noconfirm --clean --windowed --name ccscience \
             --icon assets/icon.icns \
             --add-data "assets/icon.png:." \
-            --osx-bundle-identifier io.github.ccscience-sync ccscience_sync.py
+            --osx-bundle-identifier io.github.ccscience ccscience_sync.py
           # PyInstaller stamps CFBundleShortVersionString as 0.0.0 and may omit
           # CFBundleVersion entirely; set/add the real version so Finder
           # "Get Info" and the app both show it. Set first, fall back to Add.
-          PLIST=dist/ccscience-sync.app/Contents/Info.plist
+          PLIST=dist/ccscience.app/Contents/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "$PLIST" \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VER" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VER" "$PLIST" \
@@ -86,17 +86,17 @@ jobs:
           # Ad-hoc sign so the bundle is internally consistent after editing the
           # plist. This is NOT a Developer ID signature; first-time users still
           # right-click > Open (documented in docs/INSTALL.md).
-          codesign --force --deep --sign - dist/ccscience-sync.app
-          ditto -c -k --keepParent dist/ccscience-sync.app "dist/${{ matrix.artifact }}"
+          codesign --force --deep --sign - dist/ccscience.app
+          ditto -c -k --keepParent dist/ccscience.app "dist/${{ matrix.artifact }}"
 
       - name: Build Windows app
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name ccscience-sync `
+          pyinstaller --noconfirm --clean --onefile --windowed --name ccscience `
             --icon assets/icon.ico `
             --add-data "assets/icon.png;." ccscience_sync.py
-          Compress-Archive -Path dist\ccscience-sync.exe -DestinationPath "dist\${{ matrix.artifact }}" -Force
+          Compress-Archive -Path dist\ccscience.exe -DestinationPath "dist\${{ matrix.artifact }}" -Force
 
       - uses: actions/upload-artifact@v4
         with:

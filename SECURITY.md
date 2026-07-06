@@ -1,6 +1,6 @@
 # Security Policy
 
-`ccscience-sync` is a local helper. It reads model metadata from Claude Code or
+`ccscience` is a local helper. It reads model metadata from Claude Code or
 ccswitch settings and exposes the mapped model on `127.0.0.1`.
 
 It must not collect, print, store, upload, or document API keys, tokens,

@@ -43,12 +43,14 @@ import webbrowser
 from typing import Any
 
 
-APP_NAME = "ccscience-sync"
+APP_NAME = "ccscience"
+LEGACY_APP_NAME = "ccscience-sync"
 VERSION = "0.5.1"
 DEFAULT_PORT = 19783
 THIRDPARTY_FWD_PORT = 19784  # our own hidden normalizing forwarder (no CSSwitch)
 THIRDPARTY_FWD_REVISION = 7
-MACOS_LABEL = "io.github.ccscience-sync.helper"
+MACOS_LABEL = "io.github.ccscience.helper"
+LEGACY_MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
 MARKER_END = "<!-- ccscience-sync:end -->"
 
@@ -183,8 +185,8 @@ TEXT = {
             "You do not need to reinstall after switching models."
         ),
         "gui_error": "Could not start GUI: {error}",
-        "gui_fallback": "Run 'ccscience-sync install' from a terminal instead.",
-        "opened_science": "Opened a fresh Claude Science link:\n{url}\n\nIf Claude Science asks for your Claude account, please sign in there. ccscience-sync cannot bypass account login.",
+        "gui_fallback": "Run 'ccscience install' from a terminal instead.",
+        "opened_science": "Opened a fresh Claude Science link:\n{url}\n\nIf Claude Science asks for your Claude account, please sign in there. ccscience cannot bypass account login.",
         "bridge_active": "CSSwitch bridge: active ({profile}, {model})",
         "bridge_inactive": "CSSwitch bridge: not active. Claude Science will use its normal connection.",
         "science_cli_missing": "Could not find the claude-science command. Open Claude Science from its own app, or add claude-science to PATH.",
@@ -229,8 +231,8 @@ TEXT = {
             "以后切换模型不用重新安装。"
         ),
         "gui_error": "无法启动图形界面：{error}",
-        "gui_fallback": "请改用终端运行 ccscience-sync install。",
-        "opened_science": "已打开一个新的 Claude Science 一次性链接：\n{url}\n\n如果 Claude Science 要求登录 Claude 账号，请在 Claude Science 中正常登录。ccscience-sync 不能绕过账号登录。",
+        "gui_fallback": "请改用终端运行 ccscience install。",
+        "opened_science": "已打开一个新的 Claude Science 一次性链接：\n{url}\n\n如果 Claude Science 要求登录 Claude 账号，请在 Claude Science 中正常登录。ccscience 不能绕过账号登录。",
         "bridge_active": "CSSwitch 桥接：已启用（{profile}，{model}）",
         "bridge_inactive": "CSSwitch 桥接：未启用。本次会按 Claude Science 默认连接启动。",
         "science_cli_missing": "找不到 claude-science 命令。请从 Claude Science 自己的 App 打开，或把 claude-science 加入 PATH。",
@@ -311,6 +313,10 @@ def science_data_dir() -> pathlib.Path:
 
 
 def user_config_path() -> pathlib.Path:
+    return home() / ".ccscience.json"
+
+
+def legacy_user_config_path() -> pathlib.Path:
     return home() / ".ccscience-sync.json"
 
 
@@ -339,6 +345,10 @@ def windows_startup_dir() -> pathlib.Path:
 
 def windows_startup_path() -> pathlib.Path:
     return windows_startup_dir() / f"{APP_NAME}.vbs"
+
+
+def legacy_windows_startup_path() -> pathlib.Path:
+    return windows_startup_dir() / f"{LEGACY_APP_NAME}.vbs"
 
 
 def log_path() -> pathlib.Path:
@@ -447,9 +457,12 @@ def load_json(path: pathlib.Path, default: Any) -> Any:
 
 
 def load_user_config() -> dict[str, Any]:
-    data = load_json(user_config_path(), {})
+    path = user_config_path()
+    if not path.exists() and legacy_user_config_path().exists():
+        path = legacy_user_config_path()
+    data = load_json(path, {})
     if not isinstance(data, dict):
-        raise SystemExit(f"{user_config_path()} must contain a JSON object")
+        raise SystemExit(f"{path} must contain a JSON object")
     return data
 
 
@@ -2700,12 +2713,13 @@ def _looks_like_ccscience_process(command: str) -> bool:
         "serve-forwarder",
         "ccscience_sync.py",
         "ccscience_sync",
+        "ccscience",
         "ccscience-sync",
     ))
 
 
 def _terminate_process_on_port(port: int = THIRDPARTY_FWD_PORT) -> bool:
-    """Best-effort cleanup for an old ccscience-sync forwarder occupying a port."""
+    """Best-effort cleanup for an old ccscience forwarder occupying a port."""
     sent_signal = False
     current_pid = os.getpid()
     for pid in _listening_pids_on_port(port):
@@ -3173,7 +3187,7 @@ def unpatch_index(path: pathlib.Path) -> str:
 
 
 class ModelHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "ccscience-sync/1.0"
+    server_version = "ccscience/1.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s - %s\n" % (self.log_date_time_string(), fmt % args))
@@ -3214,7 +3228,7 @@ def serve(port: int) -> None:
     threading.Thread(target=serve_thirdparty_forwarder, daemon=True).start()
     address = ("127.0.0.1", port)
     httpd = http.server.ThreadingHTTPServer(address, ModelHandler)
-    print(f"ccscience-sync serving on http://127.0.0.1:{port}/model", flush=True)
+    print(f"{APP_NAME} serving on http://127.0.0.1:{port}/model", flush=True)
     httpd.serve_forever()
 
 
@@ -3268,6 +3282,12 @@ def uninstall_launch_agent(label: str = MACOS_LABEL) -> str:
     return "not-installed"
 
 
+def uninstall_legacy_launch_agent() -> str:
+    if LEGACY_MACOS_LABEL == MACOS_LABEL:
+        return "not-installed"
+    return uninstall_launch_agent(LEGACY_MACOS_LABEL)
+
+
 def vbs_quote(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -3287,6 +3307,9 @@ def install_windows_startup(port: int) -> str:
     if not is_windows():
         return "unsupported"
     path = windows_startup_path()
+    legacy_path = legacy_windows_startup_path()
+    if legacy_path != path and legacy_path.exists():
+        legacy_path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)
     app_data_dir().mkdir(parents=True, exist_ok=True)
     path.write_text(windows_startup_script(port), encoding="utf-8")
@@ -3297,24 +3320,30 @@ def install_windows_startup(port: int) -> str:
 
 
 def uninstall_windows_startup() -> str:
-    path = windows_startup_path()
-    if path.exists():
-        path.unlink()
-        return "removed"
-    return "not-installed"
+    removed = False
+    for path in (windows_startup_path(), legacy_windows_startup_path()):
+        if path.exists():
+            path.unlink()
+            removed = True
+    return "removed" if removed else "not-installed"
 
 
 def install_autostart(port: int) -> str:
     if is_macos():
+        uninstall_legacy_launch_agent()
         return install_launch_agent(port)
     if is_windows():
         return install_windows_startup(port)
-    return "unsupported on this platform; run 'ccscience-sync serve' manually"
+    return "unsupported on this platform; run 'ccscience serve' manually"
 
 
 def uninstall_autostart() -> str:
     if is_macos():
-        return uninstall_launch_agent()
+        current = uninstall_launch_agent()
+        legacy = uninstall_legacy_launch_agent()
+        if current == "removed" or legacy == "removed":
+            return "removed"
+        return current
     if is_windows():
         return uninstall_windows_startup()
     return "unsupported"
@@ -3577,7 +3606,7 @@ def launch_gui() -> int:
         return 2
 
     root = tk.Tk()
-    root.title(f"ccscience-sync {VERSION}")
+    root.title(f"{APP_NAME} {VERSION}")
     root.geometry("720x520")
     root.minsize(640, 440)
 
@@ -3591,7 +3620,7 @@ def launch_gui() -> int:
             root.iconphoto(True, icon_image)
             root._app_icon = icon_image  # keep a reference so Tk doesn't GC it
 
-    title = ttk.Label(root, text="ccscience-sync", font=("TkDefaultFont", 18, "bold"))
+    title = ttk.Label(root, text=APP_NAME, font=("TkDefaultFont", 18, "bold"))
     title.pack(anchor="w", padx=18, pady=(16, 4))
 
     subtitle = ttk.Label(
@@ -3652,12 +3681,12 @@ def launch_gui() -> int:
                     status_var.set(tr(lang, "finished", action=label))
                     if label == tr(lang, "install_action"):
                         messagebox.showinfo(
-                            "ccscience-sync",
+                            APP_NAME,
                             tr(lang, "installed_message"),
                         )
                 else:
                     status_var.set(tr(lang, "failed", action=label))
-                    messagebox.showerror("ccscience-sync", text or tr(lang, "failed", action=label))
+                    messagebox.showerror(APP_NAME, text or tr(lang, "failed", action=label))
 
             root.after(0, finish)
 
@@ -3712,7 +3741,7 @@ def launch_gui() -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Sync ccswitch/Claude Code model into Claude Science")
+    parser = argparse.ArgumentParser(description="Use the selected CC.Switch / Claude Code model in Claude Science")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
 
