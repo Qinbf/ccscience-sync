@@ -14,3 +14,8 @@ venv/
 
 # local pre-refactor backup (not committed)
 ccscience_sync.py.v0.3.0.bak
+*.bak
+
+# local playwright-cli automation logs / verification screenshots
+.playwright-cli/
+thirdparty-verified.png

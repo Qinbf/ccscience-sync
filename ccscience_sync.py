@@ -16,6 +16,7 @@ import datetime as _dt
 import glob
 import hashlib
 import hmac
+import http.client
 import http.server
 import io
 import json
@@ -26,7 +27,8 @@ import plistlib
 import re
 import secrets
 import shutil
-import socket
+import signal
+import ssl
 import struct
 import subprocess
 import sys
@@ -34,6 +36,7 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
@@ -41,9 +44,10 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 DEFAULT_PORT = 19783
 THIRDPARTY_FWD_PORT = 19784  # our own hidden normalizing forwarder (no CSSwitch)
+THIRDPARTY_FWD_REVISION = 7
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
 MARKER_END = "<!-- ccscience-sync:end -->"
@@ -170,9 +174,9 @@ TEXT = {
         "open_thirdparty": "Third-Party (No Login)",
         "open_thirdparty_action": "Third-Party (No Login)",
         "thirdparty_needs_source": (
-            "Third-party no-login mode needs a third-party model source.\n"
-            "Either configure a third-party API (base URL + key) in ccswitch / Claude Code, "
-            "or open CSSwitch, pick a profile, and keep its local proxy running. Then try again."
+            "Third-party no-login mode needs a third-party model source first.\n"
+            "In CC.Switch, switch the active profile to a third-party model (e.g. DeepSeek) — "
+            "it writes the provider's base URL and API key — then click Third-Party (No Login) again."
         ),
         "opened_thirdparty": (
             "Opened an isolated, no-login Claude Science:\n{url}\n\n"
@@ -216,9 +220,9 @@ TEXT = {
         "open_thirdparty": "第三方免登录",
         "open_thirdparty_action": "第三方免登录",
         "thirdparty_needs_source": (
-            "第三方免登录需要一个第三方模型来源。\n"
-            "在 ccswitch / Claude Code 里配好第三方 API（base_url + key），"
-            "或打开 CSSwitch 选一个配置并保持其本地代理运行，然后重试。"
+            "第三方免登录需要先有一个第三方模型来源。\n"
+            "请在 CC.Switch 里把当前档切换到一个第三方模型（如 DeepSeek），"
+            "它会写好接口地址和 API Key，然后再点「第三方免登录」。"
         ),
         "opened_thirdparty": (
             "已打开一个隔离的、免登录的 Claude Science：\n{url}\n\n"
@@ -408,6 +412,8 @@ def fresh_claude_science_url(lang: str = "en", env: dict[str, str] | None = None
 
 def open_claude_science(lang: str = "en") -> tuple[str, dict[str, Any]]:
     env, bridge = science_launch_environment()
+    if env and env.get("ANTHROPIC_BASE_URL") == thirdparty_forwarder_base_url():
+        ensure_thirdparty_forwarder()
     url = fresh_claude_science_url(lang, env=env)
     webbrowser.open(url)
     return url, bridge
@@ -437,14 +443,50 @@ def load_csswitch_config() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def csswitch_active_profile(config: dict[str, Any]) -> dict[str, Any] | None:
-    active_id = str(config.get("active_id") or "")
+def _profile_identity(profile: dict[str, Any]) -> str:
+    for key in ("id", "profile_id", "profileId", "uuid", "name"):
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _csswitch_profiles(config: dict[str, Any]) -> list[dict[str, Any]]:
     profiles = config.get("profiles")
-    if not active_id or not isinstance(profiles, list):
-        return None
-    for profile in profiles:
-        if isinstance(profile, dict) and profile.get("id") == active_id:
-            return profile
+    if isinstance(profiles, list):
+        return [profile for profile in profiles if isinstance(profile, dict)]
+    if isinstance(profiles, dict):
+        out: list[dict[str, Any]] = []
+        for key, value in profiles.items():
+            if isinstance(value, dict):
+                item = dict(value)
+                item.setdefault("id", str(key))
+                out.append(item)
+        return out
+    return []
+
+
+def csswitch_active_profile(config: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("active_profile", "activeProfile", "current_profile", "currentProfile",
+                "selected_profile", "selectedProfile"):
+        value = config.get(key)
+        if isinstance(value, dict):
+            return value
+    profiles = _csswitch_profiles(config)
+    active_id = ""
+    for key in ("active_id", "activeId", "active_profile_id", "activeProfileId",
+                "current_profile_id", "currentProfileId", "selected_profile_id",
+                "selectedProfileId"):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip():
+            active_id = value.strip()
+            break
+    if active_id:
+        for profile in profiles:
+            if _profile_identity(profile) == active_id:
+                return profile
+    if not active_id and len(profiles) == 1:
+        return profiles[0]
     return None
 
 
@@ -482,12 +524,20 @@ def csswitch_bridge_payload(check_health: bool = True) -> dict[str, Any]:
     enabled = mode == "proxy" and profile is not None
     port = _int_port(config.get("proxy_port"), 18991)
     secret = str(config.get("secret") or "")
-    model = str(profile.get("model") or "").strip() if profile else ""
+    model = ""
+    if profile:
+        model = _profile_model(profile)
+    profile_name = ""
+    template_id = ""
+    if profile:
+        profile_name = str(profile.get("name") or profile.get("display_name") or profile.get("displayName") or
+                           profile.get("template_id") or profile.get("templateId") or "")
+        template_id = str(profile.get("template_id") or profile.get("templateId") or "")
     payload = {
         "enabled": enabled,
         "mode": mode or "missing",
-        "profile": str(profile.get("name") or profile.get("template_id") or "") if profile else "",
-        "template_id": str(profile.get("template_id") or "") if profile else "",
+        "profile": profile_name,
+        "template_id": template_id,
         "model": model,
         "proxy_port": port,
         "proxy_url": f"http://127.0.0.1:{port}/****" if secret else "",
@@ -503,24 +553,34 @@ def science_launch_environment() -> tuple[dict[str, str] | None, dict[str, Any]]
     bridge = csswitch_bridge_payload(check_health=True)
     config = load_csswitch_config()
     proxy_url = csswitch_proxy_url(config)
-    # If ccswitch wrote its own ANTHROPIC_* env (e.g. MiniMax direct), honor it
-    # verbatim and skip the CSSwitch proxy — ccswitch is the authority for that
-    # provider and the proxy would just double-route.
+    # If CC.Switch can be resolved to a direct provider, honor the active
+    # profile and skip the CSSwitch proxy. This avoids stale Claude settings
+    # winning after the user has switched profiles in CC.Switch.
     settings = load_json(claude_settings_path(), {})
     env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    direct_base = str(env_block.get("ANTHROPIC_BASE_URL") or "").strip()
-    if direct_base:
+    provider = thirdparty_provider_details()
+    if provider:
         env = dict(os.environ)
-        env["ANTHROPIC_BASE_URL"] = direct_base
-        if env_block.get("ANTHROPIC_AUTH_TOKEN"):
-            env["ANTHROPIC_AUTH_TOKEN"] = str(env_block["ANTHROPIC_AUTH_TOKEN"])
-        elif env_block.get("ANTHROPIC_API_KEY"):
-            env["ANTHROPIC_API_KEY"] = str(env_block["ANTHROPIC_API_KEY"])
-        # Forward every other ANTHROPIC_* override ccswitch set (provider-specific
-        # default models, timeouts, beta flags, etc.).
+        env["ANTHROPIC_BASE_URL"] = thirdparty_forwarder_base_url()
+        # The forwarder injects the real provider key. Keep the child process
+        # env free of long-lived third-party credentials.
+        env["ANTHROPIC_AUTH_TOKEN"] = "ccscience-forwarder"
+        # Forward safe ANTHROPIC_* overrides CC.Switch set (timeouts, beta flags,
+        # etc.) unless they would override the selected active provider/model.
         for key, value in env_block.items():
-            if isinstance(value, str) and key.startswith("ANTHROPIC_"):
+            if isinstance(value, str) and key.startswith("ANTHROPIC_") and key not in (
+                "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"
+            ):
+                if key.startswith("ANTHROPIC_DEFAULT_"):
+                    continue
                 env[key] = value
+        provider_model = strip_context_suffix(provider.get("model", ""))
+        if provider_model:
+            env["ANTHROPIC_MODEL"] = provider_model
+            settings_model = str(settings.get("model") or "")
+            tier = _request_tier(settings_model) or "opus"
+            env[f"ANTHROPIC_DEFAULT_{tier.upper()}_MODEL"] = provider_model
+            env[f"ANTHROPIC_DEFAULT_{tier.upper()}_MODEL_NAME"] = provider_model
         return env, bridge
     if bridge.get("enabled") and bridge.get("proxy_running") and proxy_url:
         env = dict(os.environ)
@@ -536,10 +596,10 @@ def science_launch_environment() -> tuple[dict[str, str] | None, dict[str, Any]]
 # API-key path is stubbed out), so a raw ANTHROPIC_API_KEY env var is not
 # enough to run the agent. The supported way to make it operate without a real
 # Claude sign-in is to seed its token store with a locally-generated "virtual"
-# OAuth session: a token whose access_token the CSSwitch proxy strips anyway,
-# with a far-future expiry so it is never refreshed online. All inference then
-# flows to ANTHROPIC_BASE_URL (the CSSwitch proxy), which swaps in the real
-# third-party key. This never touches the real ~/.claude-science.
+# OAuth session with a far-future expiry. All inference then flows to
+# ANTHROPIC_BASE_URL (either the CSSwitch proxy or our localhost forwarder),
+# which injects the real third-party key outside the sandbox credential store.
+# This never touches the real ~/.claude-science.
 #
 # The token file uses operon's "v2" format:
 #   "v2:" + base64( IV(12) || AES-256-GCM(ciphertext) || authTag(16) )
@@ -808,11 +868,9 @@ def forge_virtual_oauth(auth_dir: pathlib.Path, email: str = VIRTUAL_EMAIL, forc
     Claude Science reports authenticated=true without any real Claude account.
     Hard guardrails refuse to write into the real credential directory.
 
-    In self-contained direct mode, access_token is the real third-party API key:
-    Claude Science resolves credentials OAuth-only and sends this token as the
-    request Authorization, so embedding the key here lets inference reach the
-    provider with no proxy in the path. When omitted, a throwaway placeholder is
-    used (the CSSwitch proxy swaps in the real key instead)."""
+    access_token is an escape hatch for tests/backward compatibility. Normal
+    direct mode uses a throwaway placeholder; the localhost forwarder injects
+    the real provider key so long-lived keys are not copied into sandbox files."""
     resolved = _real_ancestor(auth_dir)
     real_dir = _real_ancestor(home() / ".claude-science")
     if resolved == real_dir:
@@ -995,12 +1053,11 @@ def sandbox_launch_env(target: dict[str, Any]) -> dict[str, str]:
     base_url = str(target.get("base_url") or "")
     env["ANTHROPIC_BASE_URL"] = base_url
     if target.get("mode") == "direct":
-        # Self-contained direct mode: the real third-party key rides inside the
-        # forged OAuth token, so the daemon talks straight to the provider. Point
-        # https_proxy at a dead local port so the blocking Anthropic oauth/profile
-        # probe fails instantly (daemon treats itself as logged-out), and put the
-        # provider host in no_proxy so inference bypasses that dead proxy and
-        # reaches the provider directly. No CSSwitch, no proxy process.
+        # Self-contained direct mode: the daemon talks to our localhost
+        # forwarder, which injects the real provider key. Point https_proxy at a
+        # dead local port so the blocking Anthropic oauth/profile probe fails
+        # instantly (daemon treats itself as logged-out), while localhost stays
+        # in no_proxy so inference reaches the forwarder.
         host = _url_host(base_url)
         dead = _dead_local_proxy()
         env["https_proxy"] = dead
@@ -1058,15 +1115,15 @@ def start_sandbox_daemon(port: int, target: dict[str, Any], lang: str = "en") ->
         raise SystemExit(tr(lang, "science_cli_missing"))
     ensure_sandbox_runtime()
     ensure_sandbox_keychain()
-    access_token = str(target.get("access_token") or "")
-    if access_token:
-        # Direct mode: refresh the token so it carries the current real key (a
-        # stale throwaway token from a prior proxy-mode run must not linger).
+    if target.get("mode") == "direct":
+        # Direct mode routes through our localhost forwarder, which injects the
+        # real key. Always refresh the sandbox OAuth token with a placeholder so
+        # an old token containing a provider key from a previous build is purged.
         # force=False REUSES the existing encryption.key so it stays consistent
         # with the daemon's macOS-Keychain copy — regenerating the key would make
         # the daemon fall back to the stale keychain key ("ensureEncryptionKeys:
         # ... using the macOS Keychain copy") and fail to read the forged token.
-        forge_virtual_oauth(sandbox_data_dir(), access_token=access_token, force=False)
+        forge_virtual_oauth(sandbox_data_dir(), force=False)
     elif not sandbox_has_valid_token(sandbox_data_dir()):
         forge_virtual_oauth(sandbox_data_dir())
     cmd = [str(binary), "serve", "--data-dir", str(sandbox_data_dir()),
@@ -1122,8 +1179,27 @@ def sandbox_url(port: int, target: dict[str, Any]) -> str:
 
 def normalize_thirdparty_request(body: dict[str, Any], host: str) -> dict[str, Any]:
     """Rewrite operon's Anthropic request for stricter third-party endpoints.
-    thinking.type "auto" -> "adaptive" (DeepSeek/MiniMax accept adaptive); for
-    DeepSeek a forced tool_choice conflicts with thinking, so disable it."""
+
+    - thinking.type "auto" -> "adaptive" (DeepSeek/MiniMax accept adaptive).
+    - DeepSeek rejects a forced tool_choice with thinking enabled → disable.
+    - Strip `cache_control` everywhere (tools / system / messages content):
+      prompt caching is an Anthropic-only field; third-party endpoints
+      (MiniMax, DeepSeek, etc.) reject the request with 400 if it is present
+      (verified 2026-07-06: MiniMax returned 2013 "function name or parameters
+      is empty" — the wrapper parser bailed on the unknown cache_control
+      block before reading the tool schema).
+    """
+    def strip_cache_control(node: Any) -> None:
+        if isinstance(node, dict):
+            node.pop("cache_control", None)
+            for v in node.values():
+                strip_cache_control(v)
+        elif isinstance(node, list):
+            for v in node:
+                strip_cache_control(v)
+
+    strip_cache_control(body)
+    normalize_anthropic_tools(body)
     is_deepseek = "deepseek" in host.lower()
     tc = body.get("tool_choice")
     forcing = isinstance(tc, dict) and tc.get("type") in ("any", "tool")
@@ -1138,21 +1214,1041 @@ def normalize_thirdparty_request(body: dict[str, Any], host: str) -> dict[str, A
     return body
 
 
-def thirdparty_provider() -> tuple[str, str] | None:
-    """(base_url, key) for the direct third-party. Priority: an explicit env
-    override (CCSCIENCE_TP_BASE / CCSCIENCE_TP_KEY — also the test hook), then the
-    provider entry ccswitch / Claude Code wrote into ~/.claude/settings.json.env."""
-    base = os.environ.get("CCSCIENCE_TP_BASE", "").strip()
-    key = os.environ.get("CCSCIENCE_TP_KEY", "").strip()
-    if base and key:
-        return base, key
+def _tool_schema_has_parameters(schema: Any) -> bool:
+    if not isinstance(schema, dict) or not schema:
+        return False
+    props = schema.get("properties")
+    if isinstance(props, dict) and props:
+        return True
+    return any(key not in ("type", "properties", "required", "additionalProperties", "$schema")
+               for key in schema)
+
+
+def normalize_anthropic_tools(body: dict[str, Any]) -> None:
+    """Keep Claude Science tool definitions valid for strict Anthropic relays."""
+    tools = body.get("tools")
+    if not isinstance(tools, list):
+        return
+
+    normalized: list[dict[str, Any]] = []
+    names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        name = str(tool.get("name") or "").strip()
+        if not name:
+            continue
+        fixed = dict(tool)
+        fixed["name"] = name
+        schema = fixed.get("input_schema")
+        if not _tool_schema_has_parameters(schema):
+            continue
+        fixed_schema = dict(schema)
+        if not isinstance(fixed_schema.get("type"), str) or not fixed_schema.get("type"):
+            fixed_schema["type"] = "object"
+        if fixed_schema.get("type") == "object" and not isinstance(fixed_schema.get("properties"), dict):
+            fixed_schema["properties"] = {}
+        fixed["input_schema"] = fixed_schema
+        normalized.append(fixed)
+        names.add(name)
+
+    if normalized:
+        body["tools"] = normalized
+    else:
+        body.pop("tools", None)
+
+    choice = body.get("tool_choice")
+    if not isinstance(choice, dict):
+        return
+    typ = choice.get("type")
+    if typ in ("any", "tool") and not normalized:
+        body.pop("tool_choice", None)
+    elif typ == "tool" and str(choice.get("name") or "") not in names:
+        body["tool_choice"] = {"type": "auto"}
+
+
+_CSSWITCH_PROVIDER_SPECS = [
+    (("deepseek",), "https://api.deepseek.com/anthropic",
+     ("DEEPSEEK_API_KEY",), "DeepSeek"),
+    (("kimi", "moonshot"), "https://api.moonshot.ai/v1",
+     ("MOONSHOT_API_KEY", "KIMI_API_KEY"), "Kimi"),
+    (("minimax", "minimaxi"), "https://api.minimax.io/anthropic",
+     ("MINIMAX_API_KEY", "MINIMAXI_API_KEY"), "MiniMax"),
+    (("glm", "zhipu", "bigmodel"), "https://open.bigmodel.cn/api/paas/v4",
+     ("BIGMODEL_API_KEY", "ZHIPUAI_API_KEY", "ZHIPU_API_KEY", "GLM_API_KEY"), "GLM"),
+    (("qwen", "dashscope", "aliyun"), "https://dashscope.aliyuncs.com/compatible-mode/v1",
+     ("DASHSCOPE_API_KEY", "QWEN_API_KEY", "ALIYUN_DASHSCOPE_API_KEY"), "Qwen"),
+    (("siliconflow",), "https://api.siliconflow.cn/v1",
+     ("SILICONFLOW_API_KEY",), "SiliconFlow"),
+    (("openrouter",), "https://openrouter.ai/api/v1",
+     ("OPENROUTER_API_KEY",), "OpenRouter"),
+]
+
+
+def _env_ref_name(text: str) -> str:
+    env_ref = re.fullmatch(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", text)
+    return env_ref.group(1) if env_ref else ""
+
+
+def _resolve_env_string(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    env_name = _env_ref_name(text)
+    if env_name:
+        resolved = os.environ.get(env_name, "")
+        if resolved and resolved != text:
+            return _resolve_env_string(resolved)
+        return ""
+    return text
+
+
+def _usable_secret(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    env_name = _env_ref_name(text)
+    if env_name:
+        resolved = os.environ.get(env_name, "")
+        if resolved and resolved != text:
+            return _usable_secret(resolved)
+        return ""
+    low = text.lower()
+    placeholders = {"hidden", "<hidden>", "<redacted>", "redacted", "****", "********", "null", "none"}
+    return "" if low in placeholders or set(text) == {"*"} else text
+
+
+def _profile_text(profile: dict[str, Any]) -> str:
+    keys = ("template_id", "templateId", "provider", "provider_id", "providerId", "name",
+            "display_name", "displayName", "model", "model_id", "modelId", "model_name",
+            "modelName", "base_url", "baseUrl", "api_base", "apiBase", "api_url", "apiUrl")
+    env_block = _profile_env(profile)
+    pieces = [str(profile.get(k) or "") for k in keys]
+    pieces.extend(str(k) for k in env_block.keys())
+    for key in ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "BASE_URL", "API_BASE_URL",
+                "ANTHROPIC_MODEL", "OPENAI_MODEL", "MODEL", "MODEL_NAME"):
+        value = env_block.get(key)
+        if isinstance(value, str):
+            pieces.append(value)
+    return " ".join(pieces).lower()
+
+
+def _csswitch_provider_spec(profile: dict[str, Any]) -> tuple[str, tuple[str, ...], str] | None:
+    text = _profile_text(profile)
+    for aliases, base_url, env_names, label in _CSSWITCH_PROVIDER_SPECS:
+        if any(alias in text for alias in aliases):
+            return base_url, env_names, label
+    return None
+
+
+def _profile_base_url(profile: dict[str, Any], default: str = "") -> str:
+    env_block = profile.get("env") if isinstance(profile.get("env"), dict) else {}
+    for container in (profile, env_block):
+        for key in ("ANTHROPIC_BASE_URL", "base_url", "baseUrl", "api_base", "apiBase",
+                    "api_url", "apiUrl", "endpoint", "url", "openai_base_url",
+                    "anthropic_base_url", "OPENAI_BASE_URL", "BASE_URL",
+                    "API_BASE_URL", "DEEPSEEK_BASE_URL", "DEEPSEEK_API_BASE",
+                    "MOONSHOT_BASE_URL", "MOONSHOT_API_BASE", "KIMI_BASE_URL",
+                    "KIMI_API_BASE", "MINIMAX_BASE_URL", "MINIMAX_API_BASE",
+                    "MINIMAXI_BASE_URL", "MINIMAXI_API_BASE", "BIGMODEL_BASE_URL",
+                    "ZHIPUAI_BASE_URL", "GLM_BASE_URL", "DASHSCOPE_BASE_URL",
+                    "QWEN_BASE_URL", "SILICONFLOW_BASE_URL", "OPENROUTER_BASE_URL"):
+            value = container.get(key) if isinstance(container, dict) else None
+            resolved = _resolve_env_string(value)
+            if resolved:
+                return resolved
+    return default
+
+
+def _profile_env(profile: dict[str, Any]) -> dict[str, Any]:
+    env_block = profile.get("env")
+    return env_block if isinstance(env_block, dict) else {}
+
+
+def _minimax_default_base(profile: dict[str, Any], key_source: str = "") -> str:
+    text = " ".join((
+        _profile_text(profile),
+        " ".join(str(v or "") for v in _profile_env(profile).values()),
+        key_source,
+    )).lower()
+    cn_markers = ("minimaxi", "china", "cn", "zh", "中国", "国内", "大陆", "china-mainland")
+    if "MINIMAXI_API_KEY" in key_source or any(marker in text for marker in cn_markers):
+        return "https://api.minimaxi.com/anthropic"
+    return "https://api.minimax.io/anthropic"
+
+
+def _profile_default_base(profile: dict[str, Any], default: str, key_source: str = "") -> str:
+    if "minimax" in default or "minimaxi" in default or any(alias in _profile_text(profile) for alias in ("minimax", "minimaxi")):
+        return _minimax_default_base(profile, key_source)
+    return default
+
+
+def _profile_key_fields(env_names: tuple[str, ...]) -> list[str]:
+    generic = (
+        "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "api_key", "apiKey",
+        "auth_token", "authToken", "access_token", "accessToken", "token", "key",
+        "OPENAI_API_KEY", "API_KEY",
+    )
+    names: list[str] = []
+    for key in (*generic, *env_names):
+        names.append(key)
+        names.append(key.lower())
+    return list(dict.fromkeys(names))
+
+
+def _profile_api_key_details(profile: dict[str, Any], env_names: tuple[str, ...]) -> tuple[str, str]:
+    env_block = _profile_env(profile)
+    for scope, container in (("profile", profile), ("profile.env", env_block)):
+        for key in _profile_key_fields(env_names):
+            if isinstance(container, dict):
+                secret = _usable_secret(container.get(key))
+                if secret:
+                    return secret, f"{scope}.{key}"
+    for name in env_names:
+        secret = _usable_secret(os.environ.get(name))
+        if secret:
+            return secret, name
+    return "", ""
+
+
+def _profile_api_key(profile: dict[str, Any], env_names: tuple[str, ...]) -> str:
+    return _profile_api_key_details(profile, env_names)[0]
+
+
+_PROVIDER_MODEL_FIELDS = (
+    "model", "model_id", "modelId", "model_name", "modelName", "api_model", "apiModel",
+    "target_model", "targetModel", "ANTHROPIC_MODEL", "OPENAI_MODEL", "MODEL",
+    "MODEL_NAME", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+)
+
+
+def _profile_model(profile: dict[str, Any], settings_provider: dict[str, str] | None = None) -> str:
+    env_block = _profile_env(profile)
+    for container in (profile, env_block):
+        if not isinstance(container, dict):
+            continue
+        for key in _PROVIDER_MODEL_FIELDS:
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return strip_context_suffix(value)
+    return strip_context_suffix(str(settings_provider and settings_provider.get("model") or ""))
+
+
+def _all_provider_env_names() -> tuple[str, ...]:
+    names: list[str] = []
+    for _aliases, _base, env_names, _label in _CSSWITCH_PROVIDER_SPECS:
+        names.extend(env_names)
+    return tuple(dict.fromkeys(names))
+
+
+def _provider_env_names_for_base(base_url: str) -> tuple[str, ...]:
+    text = base_url.lower()
+    host = _url_host(base_url).lower()
+    names: list[str] = []
+    for aliases, expected_base, env_names, _label in _CSSWITCH_PROVIDER_SPECS:
+        expected_host = _url_host(expected_base).lower()
+        if (expected_host and expected_host == host) or any(alias in text for alias in aliases):
+            names.extend(env_names)
+    return tuple(dict.fromkeys(names))
+
+
+def _settings_api_key_details(env_block: dict[str, Any], base_url: str) -> tuple[str, str]:
+    all_env_names = _all_provider_env_names()
+    for key in _profile_key_fields(all_env_names):
+        secret = _usable_secret(env_block.get(key))
+        if secret:
+            return secret, key
+    for name in _provider_env_names_for_base(base_url):
+        secret = _usable_secret(os.environ.get(name))
+        if secret:
+            return secret, name
+    return "", ""
+
+
+def _settings_provider_model(settings: dict[str, Any], env_block: dict[str, Any]) -> str:
+    source_model = strip_context_suffix(str(settings.get("model") or ""))
+    tier = _request_tier(source_model)
+    candidates: list[str] = []
+    if tier:
+        up = tier.upper()
+        candidates.extend([
+            f"ANTHROPIC_DEFAULT_{up}_MODEL",
+            f"ANTHROPIC_DEFAULT_{up}_MODEL_NAME",
+        ])
+    candidates.extend(["ANTHROPIC_MODEL", "OPENAI_MODEL", "MODEL", "MODEL_NAME"])
+    for key in candidates:
+        value = env_block.get(key)
+        if isinstance(value, str) and value.strip():
+            return strip_context_suffix(value)
+    if source_model and not _request_tier(source_model) and not source_model.startswith("claude-"):
+        return source_model
+    return ""
+
+
+def _settings_provider_details() -> dict[str, str] | None:
     settings = load_json(claude_settings_path(), {})
     if not isinstance(settings, dict):
         settings = {}
     env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    base = str(env_block.get("ANTHROPIC_BASE_URL") or "").strip()
-    key = str(env_block.get("ANTHROPIC_AUTH_TOKEN") or env_block.get("ANTHROPIC_API_KEY") or "").strip()
-    return (base, key) if base and key else None
+    base = _profile_base_url({"env": env_block}, "")
+    key, key_name = _settings_api_key_details(env_block, base)
+    if not (base and key):
+        return None
+    return {"base_url": base, "key": key, "source": "claude-settings",
+            "model": _settings_provider_model(settings, env_block),
+            "key_env": key_name}
+
+
+def _path_mtime(path: pathlib.Path) -> float:
+    with contextlib.suppress(OSError):
+        return path.stat().st_mtime
+    return 0.0
+
+
+def _same_provider_family(left_base: str, right_base: str) -> bool:
+    left_host = _url_host(left_base).lower()
+    right_host = _url_host(right_base).lower()
+    if left_host and left_host == right_host:
+        return True
+    left_brand = _provider_brand(left_host)
+    right_brand = _provider_brand(right_host)
+    return left_brand != "Third-Party" and left_brand == right_brand
+
+
+def _settings_provider_newer_than_csswitch() -> bool:
+    settings_mtime = _path_mtime(claude_settings_path())
+    csswitch_mtime = _path_mtime(csswitch_config_path())
+    return bool(settings_mtime and (not csswitch_mtime or settings_mtime > csswitch_mtime))
+
+
+def _provider_matches_profile(base_url: str, profile: dict[str, Any]) -> bool:
+    spec = _csswitch_provider_spec(profile)
+    if not spec:
+        return False
+    expected_base, _env_names, label = spec
+    text = _profile_text(profile) + " " + label.lower()
+    host = _url_host(base_url).lower()
+    expected_host = _url_host(expected_base).lower()
+    if expected_host and host == expected_host:
+        return True
+    return any(alias in host for alias in text.split() if len(alias) >= 4)
+
+
+def _csswitch_profile_provider_details(settings_provider: dict[str, str] | None = None) -> dict[str, str] | None:
+    config = load_csswitch_config()
+    profile = csswitch_active_profile(config)
+    if not profile:
+        return None
+    spec = _csswitch_provider_spec(profile)
+    default_base, env_names, label = spec if spec else ("", (), str(profile.get("name") or "Custom"))
+    explicit_base = _profile_base_url(profile, "")
+    if explicit_base:
+        env_names = tuple(dict.fromkeys((*env_names, *_provider_env_names_for_base(explicit_base))))
+    key, key_source = _profile_api_key_details(profile, env_names)
+    base = explicit_base or _profile_default_base(profile, default_base, key_source)
+    if base and not key and not env_names:
+        env_names = _provider_env_names_for_base(base)
+        key, key_source = _profile_api_key_details(profile, env_names)
+    if spec and not key and settings_provider and _provider_matches_profile(settings_provider.get("base_url", ""), profile):
+        key = settings_provider["key"]
+        key_source = settings_provider.get("key_env", "claude-settings")
+        base = explicit_base or settings_provider["base_url"]
+    if not (base and key):
+        return None
+    model = _profile_model(profile, settings_provider)
+    return {"base_url": base, "key": key, "source": "csswitch-profile",
+            "model": model, "profile": str(profile.get("name") or profile.get("displayName") or label),
+            "key_env": key_source}
+
+
+def thirdparty_provider_details() -> dict[str, str] | None:
+    """Provider details for the direct third-party forwarder.
+
+    Priority: explicit test/CLI env override, then the active CC.Switch profile
+    when it can be resolved to a base URL + key, then Claude settings. The
+    forwarder re-reads this on every request, so switching profiles is picked up
+    live without restarting it.
+    """
+    env_base = os.environ.get("CCSCIENCE_TP_BASE", "").strip()
+    env_key = os.environ.get("CCSCIENCE_TP_KEY", "").strip()
+    if env_base and env_key:
+        return {"base_url": env_base, "key": env_key, "source": "env-override",
+                "model": strip_context_suffix(os.environ.get("CCSCIENCE_TP_MODEL", "")),
+                "key_env": "CCSCIENCE_TP_KEY"}
+    settings_provider = _settings_provider_details()
+    profile_provider = _csswitch_profile_provider_details(settings_provider)
+    if profile_provider:
+        if settings_provider and not _same_provider_family(
+            profile_provider.get("base_url", ""), settings_provider.get("base_url", "")
+        ) and _settings_provider_newer_than_csswitch():
+            return settings_provider
+        return profile_provider
+    profile = csswitch_active_profile(load_csswitch_config())
+    if profile and _csswitch_provider_spec(profile) and settings_provider and not _provider_matches_profile(
+        settings_provider.get("base_url", ""), profile
+    ):
+        return settings_provider if _settings_provider_newer_than_csswitch() else None
+    return settings_provider
+
+
+def thirdparty_provider() -> tuple[str, str] | None:
+    details = thirdparty_provider_details()
+    if not details:
+        return None
+    return details["base_url"], details["key"]
+
+
+def _thirdparty_settings_env() -> dict[str, Any]:
+    settings = load_json(claude_settings_path(), {})
+    if not isinstance(settings, dict):
+        return {}
+    env_block = settings.get("env")
+    return env_block if isinstance(env_block, dict) else {}
+
+
+def _request_tier(model: str | None) -> str:
+    low = strip_context_suffix(str(model or "")).lower()
+    for tier in ("opus", "sonnet", "haiku", "fable"):
+        if tier in low:
+            return tier
+    return ""
+
+
+def _provider_model_for_request(req_model: str, provider_base: str = "", selected_model: str = "") -> str:
+    """Resolve the real provider model CC.Switch wrote for a Claude tier.
+
+    Claude Science only accepts claude-* ids in the UI, but third-party
+    providers often need their own model id on the upstream request. CC.Switch
+    records that in ANTHROPIC_DEFAULT_<TIER>_MODEL / ANTHROPIC_MODEL.
+    """
+    explicit = os.environ.get("CCSCIENCE_TP_MODEL", "").strip()
+    if explicit:
+        return strip_context_suffix(explicit)
+    env_block = _thirdparty_settings_env()
+    settings = load_json(claude_settings_path(), {})
+    settings_model = settings.get("model") if isinstance(settings, dict) else ""
+    tier = _request_tier(req_model) or _request_tier(str(settings_model or ""))
+    # The per-tier model wins for the tier actually being requested. CC.Switch
+    # writes a distinct ANTHROPIC_DEFAULT_<TIER>_MODEL per tier (e.g.
+    # opus->deepseek-v4-pro, haiku->deepseek-v4-flash), so a background/haiku
+    # request must resolve to the haiku model — not the single `selected_model`
+    # the active profile carries for its headline tier. Checking this before
+    # `selected_model` keeps per-tier mapping working; single-model providers
+    # (no per-tier env) simply fall through to `selected_model` below.
+    if tier:
+        up = tier.upper()
+        for key in (f"ANTHROPIC_DEFAULT_{up}_MODEL", f"ANTHROPIC_DEFAULT_{up}_MODEL_NAME"):
+            value = env_block.get(key)
+            if isinstance(value, str) and value.strip():
+                return strip_context_suffix(value)
+    if selected_model:
+        return strip_context_suffix(selected_model)
+    if provider_base:
+        profile_provider = _csswitch_profile_provider_details(_settings_provider_details())
+        if profile_provider and profile_provider.get("base_url") == provider_base:
+            model = profile_provider.get("model", "")
+            if model:
+                return strip_context_suffix(model)
+    for key in ("ANTHROPIC_MODEL", "OPENAI_MODEL", "MODEL", "MODEL_NAME"):
+        value = env_block.get(key)
+        if isinstance(value, str) and value.strip():
+            return strip_context_suffix(value)
+    return ""
+
+
+def _is_openai_compatible_base(base_url: str) -> bool:
+    parsed = urllib.parse.urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.rstrip("/").lower()
+    if "anthropic" in path:
+        return False
+    if path.endswith("/v1") or path.endswith("/openai"):
+        return True
+    # Kimi's official platform documents OpenAI-compatible Chat Completions;
+    # many relays expose the same shape under brand-specific hosts.
+    return any(key in host for key in (
+        "moonshot", "kimi", "openai", "openrouter", "deepseek", "minimax",
+        "minimaxi", "bigmodel", "zhipu", "dashscope", "qwen", "siliconflow",
+    ))
+
+
+def _openai_chat_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    parsed = urllib.parse.urlparse(base)
+    path = parsed.path.rstrip("/").lower()
+    if path.endswith("/chat/completions"):
+        return base
+    if re.search(r"/v\d+$", path):
+        return base + "/chat/completions"
+    return base + "/v1/chat/completions"
+
+
+def _anthropic_endpoint_url(base_url: str, request_path: str) -> str:
+    base = base_url.rstrip("/")
+    req = request_path if request_path.startswith("/") else "/" + request_path
+    path, sep, query = req.partition("?")
+    query = sep + query if sep else ""
+    base_path = urllib.parse.urlparse(base).path.rstrip("/").lower()
+    if path.startswith("/v1/") and base_path.endswith("/v1"):
+        return base + path[len("/v1"):] + query
+    if path == "/v1/messages" and base_path.endswith("/v1/messages"):
+        return base + query
+    if path == "/v1/messages/count_tokens" and base_path.endswith("/v1/messages/count_tokens"):
+        return base + query
+    return base + req
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                typ = block.get("type")
+                if typ == "text" and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif typ == "tool_result":
+                    parts.append(_content_text(block.get("content")))
+    return "\n".join(p for p in parts if p)
+
+
+def _anthropic_source_data_url(source: Any) -> str:
+    if not isinstance(source, dict):
+        return ""
+    typ = str(source.get("type") or "").lower()
+    if typ in ("url", "uri"):
+        return str(source.get("url") or source.get("uri") or "").strip()
+    data = source.get("data")
+    media_type = str(source.get("media_type") or source.get("mediaType") or "").strip()
+    if typ == "base64" and isinstance(data, str) and data.strip() and media_type:
+        return f"data:{media_type};base64,{data.strip()}"
+    return ""
+
+
+def _anthropic_block_to_openai_part(block: Any) -> dict[str, Any] | None:
+    if isinstance(block, str):
+        return {"type": "text", "text": block}
+    if not isinstance(block, dict):
+        return None
+    typ = block.get("type")
+    if typ == "text" and isinstance(block.get("text"), str):
+        return {"type": "text", "text": block["text"]}
+    if typ == "image":
+        url = _anthropic_source_data_url(block.get("source"))
+        return {"type": "image_url", "image_url": {"url": url}} if url else None
+    if typ == "video":
+        url = _anthropic_source_data_url(block.get("source"))
+        return {"type": "video_url", "video_url": {"url": url}} if url else None
+    return None
+
+
+def _anthropic_content_to_openai_content(content: Any) -> Any:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = [part for part in (_anthropic_block_to_openai_part(block) for block in content) if part]
+    return _openai_parts_to_content(parts) if parts else _content_text(content)
+
+
+def _openai_parts_to_content(parts: list[dict[str, Any]]) -> Any:
+    if not parts:
+        return ""
+    if all(part.get("type") == "text" for part in parts):
+        return "\n".join(str(part.get("text") or "") for part in parts if part.get("text"))
+    return parts
+
+
+def _anthropic_tools_to_openai(tools: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(tools, list):
+        return out
+    for tool in tools:
+        if not isinstance(tool, dict) or not tool.get("name"):
+            continue
+        fn: dict[str, Any] = {
+            "name": str(tool["name"]),
+            "parameters": tool.get("input_schema") if isinstance(tool.get("input_schema"), dict) else {
+                "type": "object",
+                "properties": {},
+            },
+        }
+        if isinstance(tool.get("description"), str):
+            fn["description"] = tool["description"]
+        out.append({"type": "function", "function": fn})
+    return out
+
+
+def _anthropic_tool_choice_to_openai(choice: Any) -> Any:
+    if not isinstance(choice, dict):
+        return None
+    typ = choice.get("type")
+    if typ in ("none", "auto"):
+        return typ
+    if typ == "any":
+        return "required"
+    if typ == "tool" and choice.get("name"):
+        return {"type": "function", "function": {"name": str(choice["name"])}}
+    return None
+
+
+def _rough_count_tokens(value: Any) -> int:
+    text = ""
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    elif value is not None:
+        text = str(value)
+    # Conservative-enough local estimate for compatibility probes: CJK text is
+    # denser than English, and JSON/tool schemas add structural overhead.
+    return max(1, (len(text) + 3) // 4) if text else 0
+
+
+def estimate_anthropic_input_tokens(body: dict[str, Any]) -> int:
+    total = 0
+    for key in ("model", "system", "messages", "tools", "tool_choice", "thinking"):
+        if key in body:
+            total += _rough_count_tokens(body[key])
+    return max(1, total)
+
+
+def _anthropic_messages_to_openai(body: dict[str, Any], preserve_reasoning: bool = False,
+                                  reasoning_details: bool = False,
+                                  include_tool_names: bool = False) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    tool_names_by_id: dict[str, str] = {}
+    system_text = _content_text(body.get("system"))
+    if system_text:
+        out.append({"role": "system", "content": system_text})
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return out
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role") or "user")
+        content = msg.get("content")
+        if isinstance(content, str):
+            out.append({"role": role if role in ("user", "assistant") else "user", "content": content})
+            continue
+        if not isinstance(content, list):
+            continue
+        if role == "assistant":
+            text_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                typ = block.get("type")
+                if typ == "text" and isinstance(block.get("text"), str):
+                    text_parts.append(block["text"])
+                elif typ == "thinking" and isinstance(block.get("thinking"), str):
+                    reasoning_parts.append(block["thinking"])
+                elif typ == "tool_use" and block.get("id") and block.get("name"):
+                    tool_names_by_id[str(block["id"])] = str(block["name"])
+                    tool_calls.append({
+                        "id": str(block["id"]),
+                        "type": "function",
+                        "function": {
+                            "name": str(block["name"]),
+                            "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False),
+                        },
+                    })
+            item: dict[str, Any] = {"role": "assistant",
+                                    "content": "\n".join(text_parts) or ("" if reasoning_parts else None)}
+            if preserve_reasoning and reasoning_parts:
+                reasoning_text = "".join(reasoning_parts)
+                item["reasoning_content"] = reasoning_text
+                if reasoning_details:
+                    item["reasoning_details"] = [{"type": "text", "text": reasoning_text}]
+            if tool_calls:
+                item["tool_calls"] = tool_calls
+            out.append(item)
+            continue
+        pending_parts: list[dict[str, Any]] = []
+        for block in content:
+            part = _anthropic_block_to_openai_part(block)
+            typ = block.get("type") if isinstance(block, dict) else None
+            if part:
+                pending_parts.append(part)
+            elif typ == "tool_result" and block.get("tool_use_id"):
+                if pending_parts:
+                    out.append({"role": "user", "content": _openai_parts_to_content(pending_parts)})
+                    pending_parts = []
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": str(block["tool_use_id"]),
+                    "content": _anthropic_content_to_openai_content(block.get("content")),
+                }
+                name = tool_names_by_id.get(str(block["tool_use_id"]))
+                if include_tool_names and name:
+                    tool_msg["name"] = name
+                out.append(tool_msg)
+        if pending_parts:
+            out.append({"role": "user", "content": _openai_parts_to_content(pending_parts)})
+    return out
+
+
+def _is_kimi_host(host: str) -> bool:
+    low = host.lower()
+    return "moonshot" in low or "kimi" in low
+
+
+def _is_deepseek_host(host: str) -> bool:
+    return "deepseek" in host.lower()
+
+
+def _is_minimax_host(host: str) -> bool:
+    low = host.lower()
+    return "minimax" in low or "minimaxi" in low
+
+
+def _is_kimi_model(model: str) -> bool:
+    return strip_context_suffix(model).lower().startswith("kimi-")
+
+
+def _kimi_always_thinking(model: str) -> bool:
+    return "kimi-k2.7-code" in strip_context_suffix(model).lower()
+
+
+def _openai_tool_choice_is_forced(choice: Any) -> bool:
+    return choice == "required" or isinstance(choice, dict)
+
+
+def _normalize_kimi_tool_choice(model: str, tool_choice: Any) -> Any:
+    if _kimi_always_thinking(model) and _openai_tool_choice_is_forced(tool_choice):
+        return "auto"
+    return tool_choice
+
+
+def _kimi_thinking_payload(model: str, thinking: Any) -> dict[str, Any] | None:
+    if not isinstance(thinking, dict):
+        return None
+    # Kimi K2.7 Code always thinks and the docs say not to pass `thinking`.
+    if _kimi_always_thinking(model):
+        return None
+    typ = thinking.get("type")
+    if typ not in ("enabled", "disabled"):
+        return None
+    out = {"type": typ}
+    if typ == "enabled" and thinking.get("keep") == "all":
+        out["keep"] = "all"
+    return out
+
+
+def _deepseek_thinking_payload(thinking: Any) -> dict[str, Any] | None:
+    if not isinstance(thinking, dict):
+        return None
+    typ = thinking.get("type")
+    if typ == "disabled":
+        return {"type": "disabled"}
+    if typ in ("enabled", "adaptive", "auto"):
+        out = {"type": "enabled"}
+        effort = thinking.get("reasoning_effort") or thinking.get("effort")
+        if effort in ("high", "max", "low", "medium", "xhigh"):
+            out["reasoning_effort"] = effort
+        return out
+    return None
+
+
+def _minimax_thinking_payload(thinking: Any) -> dict[str, Any] | None:
+    if not isinstance(thinking, dict):
+        return None
+    typ = thinking.get("type")
+    if typ == "disabled":
+        return {"type": "disabled"}
+    if typ in ("adaptive", "enabled", "auto"):
+        return {"type": "adaptive"}
+    return None
+
+
+def _anthropic_to_openai_request(body: dict[str, Any], provider_model: str, host: str) -> dict[str, Any]:
+    model = provider_model or strip_context_suffix(str(body.get("model") or ""))
+    is_kimi = _is_kimi_host(host)
+    is_deepseek = _is_deepseek_host(host)
+    is_minimax = _is_minimax_host(host)
+    is_kimi_model = is_kimi and _is_kimi_model(model)
+    out: dict[str, Any] = {
+        "model": model,
+        "messages": _anthropic_messages_to_openai(body, preserve_reasoning=is_kimi or is_deepseek or is_minimax,
+                                                  reasoning_details=is_minimax,
+                                                  include_tool_names=is_kimi),
+    }
+    field_map = {
+        "max_tokens": "max_tokens",
+        "temperature": "temperature",
+        "top_p": "top_p",
+        "stream": "stream",
+    }
+    for src, dst in field_map.items():
+        if src in body:
+            # Kimi K2.x has fixed sampling defaults; forwarding arbitrary Claude
+            # Science temperature/top_p values can make Moonshot reject the call.
+            if is_kimi_model and src in ("temperature", "top_p"):
+                continue
+            out[dst] = body[src]
+    if body.get("stop_sequences"):
+        out["stop"] = body["stop_sequences"]
+    tools = _anthropic_tools_to_openai(body.get("tools"))
+    if tools:
+        out["tools"] = tools
+    tool_choice = _anthropic_tool_choice_to_openai(body.get("tool_choice"))
+    if is_kimi_model:
+        tool_choice = _normalize_kimi_tool_choice(model, tool_choice)
+    if tool_choice is not None:
+        out["tool_choice"] = tool_choice
+    # Kimi exposes reasoning via `reasoning_content`. Its `thinking.type` accepts
+    # enabled/disabled, not Anthropic/MiniMax's adaptive mode, so omit auto/adaptive.
+    if is_kimi:
+        th = _kimi_thinking_payload(model, body.get("thinking"))
+        # Kimi thinking mode only allows tool_choice auto/none. Claude Science may
+        # force a tool via Anthropic's `any`/`tool`; disable thinking to keep the
+        # tool call request valid when the model supports disabling it.
+        if is_kimi_model and _openai_tool_choice_is_forced(tool_choice) and not _kimi_always_thinking(model):
+            th = {"type": "disabled"}
+        if th:
+            out["thinking"] = th
+    elif is_deepseek:
+        th = _deepseek_thinking_payload(body.get("thinking"))
+        if th:
+            out["thinking"] = th
+    elif is_minimax:
+        th = _minimax_thinking_payload(body.get("thinking"))
+        if th:
+            out["thinking"] = th
+        out["reasoning_split"] = True
+    return out
+
+
+def _openai_stop_reason(reason: Any, has_tools: bool = False) -> str:
+    if has_tools or reason == "tool_calls":
+        return "tool_use"
+    if reason == "length":
+        return "max_tokens"
+    if reason == "stop":
+        return "end_turn"
+    return "end_turn"
+
+
+def _openai_tool_content(tool_call: dict[str, Any]) -> dict[str, Any] | None:
+    fn = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    name = fn.get("name")
+    if not name:
+        return None
+    args = fn.get("arguments") or "{}"
+    if isinstance(args, str):
+        with contextlib.suppress(Exception):
+            args = json.loads(args or "{}")
+    if not isinstance(args, dict):
+        args = {}
+    return {
+        "type": "tool_use",
+        "id": str(tool_call.get("id") or ("toolu_" + secrets.token_hex(8))),
+        "name": str(name),
+        "input": args,
+    }
+
+
+def _openai_reasoning_details_text(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            text = item.get("text") or item.get("content")
+            if isinstance(text, str) and text:
+                parts.append(text)
+    return "".join(parts)
+
+
+def _openai_reasoning_text(node: dict[str, Any]) -> str:
+    for key in ("reasoning_content", "reasoning", "reasoning_text"):
+        val = node.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return _openai_reasoning_details_text(node.get("reasoning_details"))
+
+
+def _openai_stream_reasoning_delta(node: dict[str, Any], previous_details_text: str) -> tuple[str, str]:
+    for key in ("reasoning_content", "reasoning", "reasoning_text"):
+        val = node.get(key)
+        if isinstance(val, str) and val:
+            return val, previous_details_text
+    current = _openai_reasoning_details_text(node.get("reasoning_details"))
+    if not current:
+        return "", previous_details_text
+    if previous_details_text and current.startswith(previous_details_text):
+        return current[len(previous_details_text):], current
+    return current, current
+
+
+def _openai_to_anthropic_response(blob: bytes, req_model: str) -> bytes:
+    data = json.loads(blob.decode("utf-8"))
+    choice = (data.get("choices") or [{}])[0]
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    content: list[dict[str, Any]] = []
+    reasoning = _openai_reasoning_text(message)
+    if reasoning:
+        content.append({"type": "thinking", "thinking": reasoning, "signature": ""})
+    text = message.get("content")
+    if isinstance(text, str) and text:
+        content.append({"type": "text", "text": text})
+    for tool_call in message.get("tool_calls") or []:
+        if isinstance(tool_call, dict):
+            block = _openai_tool_content(tool_call)
+            if block:
+                content.append(block)
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    out = {
+        "id": str(data.get("id") or ("msg_" + secrets.token_hex(12))),
+        "type": "message",
+        "role": "assistant",
+        "model": str(data.get("model") or req_model),
+        "content": content,
+        "stop_reason": _openai_stop_reason(choice.get("finish_reason"), any(c.get("type") == "tool_use" for c in content)),
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": int(usage.get("prompt_tokens") or 0),
+            "output_tokens": int(usage.get("completion_tokens") or 0),
+        },
+    }
+    return json.dumps(out, ensure_ascii=False).encode("utf-8")
+
+
+def _sse_event(event: str, data: dict[str, Any]) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
+def _iter_openai_sse_payloads(chunks: Any) -> Any:
+    buf = b""
+    while True:
+        chunk = chunks.read(4096)
+        if not chunk:
+            break
+        buf += chunk
+        buf = buf.replace(b"\r\n", b"\n")
+        while b"\n\n" in buf:
+            raw, buf = buf.split(b"\n\n", 1)
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith(b"data:"):
+                    payload = line[5:].strip()
+                    if payload:
+                        yield payload
+    for line in buf.splitlines():
+        line = line.strip()
+        if line.startswith(b"data:"):
+            payload = line[5:].strip()
+            if payload:
+                yield payload
+
+
+def _write_chunk(wfile: Any, chunk: bytes) -> None:
+    if not chunk:
+        return
+    wfile.write(hex(len(chunk))[2:].encode() + b"\r\n" + chunk + b"\r\n")
+    wfile.flush()
+
+
+def thirdparty_forwarder_base_url(port: int = THIRDPARTY_FWD_PORT) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
+def _open_upstream(req: urllib.request.Request, timeout: int = 300) -> Any:
+    """Open the connection to the third-party provider.
+
+    Verify TLS by default, but many third-party relays (中转) serve a
+    self-signed / private-CA certificate chain. urllib then raises
+    CERTIFICATE_VERIFY_FAILED, which operon surfaces to the user as
+    "Claude is temporarily unavailable — retrying". Since this forwarder is
+    bound to localhost and the provider is one the user explicitly configured
+    (their own base_url + key), fall back to an unverified connection on a cert
+    verification error — the same posture as `curl -k`. Set
+    CCSCIENCE_TP_STRICT_TLS=1 to keep verification strict and fail loudly."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError:
+        raise  # a real HTTP status from the provider — surface it as-is
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        cert_error = isinstance(reason, ssl.SSLCertVerificationError) or \
+            "CERTIFICATE_VERIFY_FAILED" in str(reason)
+        strict = os.environ.get("CCSCIENCE_TP_STRICT_TLS", "").lower() in ("1", "true", "yes")
+        if not cert_error or strict:
+            raise
+        insecure = ssl.create_default_context()
+        insecure.check_hostname = False
+        insecure.verify_mode = ssl.CERT_NONE
+        return urllib.request.urlopen(req, timeout=timeout, context=insecure)
+
+
+# The real model ids seen in upstream responses. operon always sends a claude-*
+# id; the provider maps it to its own model and echoes the real one back (and it
+# can differ per tier, e.g. opus->deepseek-v4-pro, haiku->deepseek-v4-flash). We
+# surface these to the web UI (see /thirdparty-label) so the model picker shows
+# the model actually answering, not the Claude tier label.
+_LAST_UPSTREAM_MODEL = ""
+_TIER_MODELS: dict[str, str] = {}  # claude-* request id -> real response model
+_LAST_PROVIDER_STATE = ""  # detect CC.Switch provider/model switches to purge stale names
+
+_PROVIDER_BRANDS = {
+    "deepseek": "DeepSeek", "minimaxi": "MiniMax", "minimax": "MiniMax",
+    "moonshot": "Moonshot", "kimi": "Kimi", "bigmodel": "GLM", "zhipu": "GLM",
+    "dashscope": "Qwen", "qwen": "Qwen", "siliconflow": "SiliconFlow",
+    "openrouter": "OpenRouter", "openai": "OpenAI", "anthropic": "Anthropic",
+}
+
+
+def _provider_brand(host: str) -> str:
+    """A human brand for a provider host, e.g. api.deepseek.com -> "DeepSeek"."""
+    low = (host or "").lower()
+    for key, brand in _PROVIDER_BRANDS.items():
+        if key in low:
+            return brand
+    parts = [p for p in low.split(".") if p and p not in
+             ("api", "www", "gateway", "com", "cn", "net", "io", "ai", "co", "org")]
+    return parts[0].capitalize() if parts else "Third-Party"
+
+
+def _pretty_model(brand: str, model: str) -> str:
+    """Human label for the model picker, e.g. ("DeepSeek","deepseek-v4-pro") ->
+    "DeepSeek V4 Pro". Falls back to the brand when no model is known yet."""
+    if not model:
+        return brand or "Third-Party"
+    words = []
+    for tok in re.split(r"[-_ ]+", model):
+        if not tok:
+            continue
+        if brand and tok.lower() == brand.lower():
+            words.append(brand)
+        elif len(tok) <= 4 and re.fullmatch(r"[a-z]?\d[\w.]*", tok.lower()):
+            words.append(tok.upper())          # version tokens: v4, m2, 4o ...
+        else:
+            words.append(tok.capitalize())
+    return " ".join(words) or (brand or model)
+
+
+def _record_upstream_model(req_model: str, blob: bytes) -> None:
+    """Capture the real model id from an upstream response body / SSE chunk and
+    remember which claude-* tier it answered for."""
+    global _LAST_UPSTREAM_MODEL
+    m = re.search(rb'"model"\s*:\s*"([^"]+)"', blob or b"")
+    if not m:
+        return
+    val = m.group(1).decode("utf-8", "replace").strip()
+    if not val:
+        return
+    _LAST_UPSTREAM_MODEL = val
+    if req_model:
+        _TIER_MODELS[req_model] = val
 
 
 class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
@@ -1166,12 +2262,25 @@ class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(body)))
+        # The injected web-UI script reads /thirdparty-label cross-origin
+        # (operon page on :8990 -> forwarder on :19784); allow it. Harmless for
+        # the server-to-server /v1/* responses.
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Connection", "close")
         self.end_headers()
         with contextlib.suppress(OSError):
             self.wfile.write(body)
 
     def do_GET(self) -> None:
+        if self.path.split("?", 1)[0] == "/health":
+            self._reply(200, json.dumps({
+                "ok": True,
+                "adapter": "thirdparty-forwarder",
+                "version": VERSION,
+                "forwarder_revision": THIRDPARTY_FWD_REVISION,
+                "pid": os.getpid(),
+            }).encode())
+            return
         # operon fetches <ANTHROPIC_BASE_URL>/v1/models to learn which models are
         # runnable; if that fetch fails it marks every model "unavailable" and
         # rejects requests. Answer with the Claude tier ids operon already knows
@@ -1185,33 +2294,243 @@ class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
                                         ("claude-haiku-4-5", "Claude Haiku 4.5"))]
             self._reply(200, json.dumps({"data": models, "has_more": False}).encode())
             return
+        if self.path.startswith("/thirdparty-label"):
+            # The injected web-UI script asks who is really answering, so the
+            # model picker can show the provider's model instead of "Opus 4.8".
+            # `tiers` maps each claude-* id to the real model it answered with
+            # (may differ per tier); `display` is the fallback for tiers not yet
+            # seen. Names only — the id the UI sends stays claude-*.
+            global _LAST_PROVIDER_STATE, _LAST_UPSTREAM_MODEL, _TIER_MODELS
+            brand = ""
+            provider = thirdparty_provider_details()
+            prov_base = provider.get("base_url", "") if provider else ""
+            prov_model = provider.get("model", "") if provider else ""
+            if provider:
+                brand = _provider_brand(_url_host(prov_base))
+            # When the user switches CC.Switch profiles or models (e.g. DeepSeek
+            # Pro -> Flash), old process-level model names are stale. Drop them
+            # so the UI falls back to the current provider/model until a new
+            # request repopulates tier-specific real names.
+            state = prov_base + "\n" + prov_model
+            if prov_base and state != _LAST_PROVIDER_STATE:
+                _LAST_PROVIDER_STATE = state
+                _LAST_UPSTREAM_MODEL = ""
+                _TIER_MODELS.clear()
+            tiers = {cid: _pretty_model(brand, real) for cid, real in _TIER_MODELS.items()}
+            fallback_model = _LAST_UPSTREAM_MODEL or prov_model
+            self._reply(200, json.dumps({
+                "brand": brand,
+                "display": _pretty_model(brand, fallback_model),
+                "tiers": tiers,
+                # Only the no-login sandbox routes through us; the injected script
+                # uses this to avoid relabelling the *real* Claude Science UI (a
+                # different port) when a third-party is also configured for it.
+                "sandbox_port": _int_port(os.environ.get("CCSCIENCE_SANDBOX_PORT"), SANDBOX_PORT_DEFAULT),
+            }).encode())
+            return
         self._reply(404, b'{"type":"error","error":{"message":"not found"}}')
 
+    def _relay_openai_stream(self, up: Any, req_model: str, provider_model: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+        message_id = "msg_" + secrets.token_hex(12)
+        model = provider_model or req_model
+        text_open = False
+        thinking_open = False
+        next_index = 0
+        text_index = 0
+        thinking_index = 0
+        tool_buffers: dict[int, dict[str, Any]] = {}
+        stop_reason = "end_turn"
+        output_tokens = 0
+        reasoning_details_text = ""
+
+        start = {
+            "type": "message_start",
+            "message": {
+                "id": message_id,
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [],
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        }
+        _write_chunk(self.wfile, _sse_event("message_start", start))
+        try:
+            with up:
+                for payload in _iter_openai_sse_payloads(up):
+                    if payload == b"[DONE]":
+                        break
+                    _record_upstream_model(req_model, payload)
+                    try:
+                        data = json.loads(payload.decode("utf-8"))
+                    except Exception:
+                        continue
+                    if data.get("model"):
+                        model = str(data["model"])
+                    usage = data.get("usage")
+                    if isinstance(usage, dict):
+                        output_tokens = int(usage.get("completion_tokens") or output_tokens)
+                    choices = data.get("choices") if isinstance(data.get("choices"), list) else []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    if not isinstance(choice, dict):
+                        continue
+                    delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+                    reasoning, reasoning_details_text = _openai_stream_reasoning_delta(delta, reasoning_details_text)
+                    if reasoning:
+                        if not thinking_open:
+                            thinking_index = next_index
+                            next_index += 1
+                            _write_chunk(self.wfile, _sse_event("content_block_start", {
+                                "type": "content_block_start",
+                                "index": thinking_index,
+                                "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+                            }))
+                            thinking_open = True
+                        _write_chunk(self.wfile, _sse_event("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": thinking_index,
+                            "delta": {"type": "thinking_delta", "thinking": reasoning},
+                        }))
+                    text = delta.get("content")
+                    if isinstance(text, str) and text:
+                        if thinking_open:
+                            _write_chunk(self.wfile, _sse_event("content_block_stop", {
+                                "type": "content_block_stop",
+                                "index": thinking_index,
+                            }))
+                            thinking_open = False
+                        if not text_open:
+                            text_index = next_index
+                            next_index += 1
+                            _write_chunk(self.wfile, _sse_event("content_block_start", {
+                                "type": "content_block_start",
+                                "index": text_index,
+                                "content_block": {"type": "text", "text": ""},
+                            }))
+                            text_open = True
+                        _write_chunk(self.wfile, _sse_event("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": text_index,
+                            "delta": {"type": "text_delta", "text": text},
+                        }))
+                    for tool_delta in delta.get("tool_calls") or []:
+                        if not isinstance(tool_delta, dict):
+                            continue
+                        idx = int(tool_delta.get("index") or 0)
+                        buf = tool_buffers.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                        if tool_delta.get("id"):
+                            buf["id"] = str(tool_delta["id"])
+                        fn = tool_delta.get("function") if isinstance(tool_delta.get("function"), dict) else {}
+                        if fn.get("name"):
+                            buf["name"] = str(fn["name"])
+                        if isinstance(fn.get("arguments"), str):
+                            buf["arguments"] += fn["arguments"]
+                    if choice.get("finish_reason"):
+                        stop_reason = _openai_stop_reason(choice.get("finish_reason"), bool(tool_buffers))
+            if thinking_open:
+                _write_chunk(self.wfile, _sse_event("content_block_stop", {
+                    "type": "content_block_stop",
+                    "index": thinking_index,
+                }))
+            if text_open:
+                _write_chunk(self.wfile, _sse_event("content_block_stop", {
+                    "type": "content_block_stop",
+                    "index": text_index,
+                }))
+            for _, buf in sorted(tool_buffers.items()):
+                args_json = str(buf.get("arguments") or "{}")
+                with contextlib.suppress(Exception):
+                    parsed_args = json.loads(args_json)
+                    if isinstance(parsed_args, dict):
+                        args_json = json.dumps(parsed_args, ensure_ascii=False, separators=(",", ":"))
+                block = {
+                    "type": "tool_use",
+                    "id": str(buf.get("id") or ("toolu_" + secrets.token_hex(8))),
+                    "name": str(buf.get("name") or "tool"),
+                    "input": {},
+                }
+                idx = next_index
+                next_index += 1
+                _write_chunk(self.wfile, _sse_event("content_block_start", {
+                    "type": "content_block_start",
+                    "index": idx,
+                    "content_block": block,
+                }))
+                _write_chunk(self.wfile, _sse_event("content_block_delta", {
+                    "type": "content_block_delta",
+                    "index": idx,
+                    "delta": {"type": "input_json_delta", "partial_json": args_json},
+                }))
+                _write_chunk(self.wfile, _sse_event("content_block_stop", {
+                    "type": "content_block_stop",
+                    "index": idx,
+                }))
+            _write_chunk(self.wfile, _sse_event("message_delta", {
+                "type": "message_delta",
+                "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                "usage": {"output_tokens": output_tokens},
+            }))
+            _write_chunk(self.wfile, _sse_event("message_stop", {"type": "message_stop"}))
+            self.wfile.write(b"0\r\n\r\n")
+        except (OSError, http.client.HTTPException):
+            # Upstream relay closed mid-stream (IncompleteRead is an
+            # HTTPException, not an OSError) or operon hung up. Swallow it like a
+            # client disconnect instead of letting the worker thread traceback.
+            pass
+
     def do_POST(self) -> None:
-        prov = thirdparty_provider()
-        if not prov:
+        provider = thirdparty_provider_details()
+        if not provider:
             self._reply(503, b'{"type":"error","error":{"message":"no third-party provider configured"}}')
             return
-        base, key = prov
+        base, key = provider["base_url"], provider["key"]
         n = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(n) if n else b"{}"
         stream = "text/event-stream" in (self.headers.get("Accept") or "")
+        req_model = ""
+        provider_model = ""
+        openai_mode = _is_openai_compatible_base(base)
         try:
             body = json.loads(raw)
+            req_model = str(body.get("model") or "")
             normalize_thirdparty_request(body, _url_host(base))
+            provider_model = _provider_model_for_request(req_model, base, provider.get("model", ""))
+            if provider_model:
+                body["model"] = provider_model
             stream = bool(body.get("stream"))
-            raw = json.dumps(body).encode()
+            if self.path.startswith("/v1/messages/count_tokens"):
+                self._reply(200, json.dumps({
+                    "input_tokens": estimate_anthropic_input_tokens(body),
+                }).encode())
+                return
+            if openai_mode:
+                body = _anthropic_to_openai_request(body, provider_model, _url_host(base))
+            raw = json.dumps(body, ensure_ascii=False).encode()
         except (ValueError, TypeError):
             pass  # forward non-JSON verbatim
-        url = base.rstrip("/") + (self.path if self.path.startswith("/") else "/" + self.path)
-        headers = {"content-type": "application/json", "anthropic-version": "2023-06-01",
-                   "x-api-key": key, "authorization": f"Bearer {key}"}
-        beta = self.headers.get("anthropic-beta")
-        if beta:
-            headers["anthropic-beta"] = beta
+        if openai_mode:
+            url = _openai_chat_url(base)
+            headers = {"content-type": "application/json", "authorization": f"Bearer {key}"}
+        else:
+            url = _anthropic_endpoint_url(base, self.path)
+            headers = {"content-type": "application/json", "anthropic-version": "2023-06-01",
+                       "x-api-key": key, "authorization": f"Bearer {key}"}
+            beta = self.headers.get("anthropic-beta")
+            if beta:
+                headers["anthropic-beta"] = beta
         req = urllib.request.Request(url, data=raw, method="POST", headers=headers)
         try:
-            up = urllib.request.urlopen(req, timeout=300)
+            up = _open_upstream(req, timeout=300)
         except urllib.error.HTTPError as exc:
             self._reply(exc.code, exc.read(), exc.headers.get("Content-Type", "application/json"))
             return
@@ -1222,7 +2541,18 @@ class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
         if not stream:
             with up:
                 data = up.read()
+            _record_upstream_model(req_model, data)  # note the real model that answered
+            if openai_mode:
+                try:
+                    data = _openai_to_anthropic_response(data, req_model)
+                    ct = "application/json"
+                except Exception as exc:
+                    self._reply(502, json.dumps({"type": "error", "error": {"message": str(exc)}}).encode())
+                    return
             self._reply(up.getcode() or 200, data, ct)
+            return
+        if openai_mode:
+            self._relay_openai_stream(up, req_model, provider_model)
             return
         # Streaming: relay the upstream SSE with chunked transfer, like CSSwitch.
         self.send_response(200)
@@ -1230,17 +2560,21 @@ class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        sniffed = False
         try:
             with up:
                 while True:
                     chunk = up.read(4096)
                     if not chunk:
                         break
-                    self.wfile.write(hex(len(chunk))[2:].encode() + b"\r\n" + chunk + b"\r\n")
-                    self.wfile.flush()
+                    if not sniffed:
+                        # message_start (first event) carries the real model id.
+                        _record_upstream_model(req_model, chunk)
+                        sniffed = True
+                    _write_chunk(self.wfile, chunk)
             self.wfile.write(b"0\r\n\r\n")
-        except OSError:
-            pass  # client hung up mid-stream
+        except (OSError, http.client.HTTPException):
+            pass  # client hung up, or upstream relay closed mid-stream (IncompleteRead)
 
 
 def serve_thirdparty_forwarder(port: int = THIRDPARTY_FWD_PORT) -> None:
@@ -1249,12 +2583,136 @@ def serve_thirdparty_forwarder(port: int = THIRDPARTY_FWD_PORT) -> None:
         httpd.serve_forever()
 
 
-def thirdparty_forwarder_healthy(port: int = THIRDPARTY_FWD_PORT) -> bool:
+def _thirdparty_forwarder_health(port: int = THIRDPARTY_FWD_PORT) -> dict[str, Any] | None:
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-            return True
-    except OSError:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=0.6) as res:
+            status = getattr(res, "status", None) or res.getcode()
+            if status != 200:
+                return None
+            payload = json.loads(res.read(4096).decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def thirdparty_forwarder_healthy(port: int = THIRDPARTY_FWD_PORT) -> bool:
+    payload = _thirdparty_forwarder_health(port)
+    return bool(
+        payload
+        and payload.get("ok") is True
+        and payload.get("adapter") == "thirdparty-forwarder"
+        and payload.get("version") == VERSION
+        and payload.get("forwarder_revision") == THIRDPARTY_FWD_REVISION
+    )
+
+
+def _listening_pids_on_port(port: int) -> list[int]:
+    if is_windows():
+        try:
+            completed = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=2,
+            )
+        except Exception:
+            return []
+        pids: list[int] = []
+        for line in completed.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 5 or parts[0].lower() != "tcp" or parts[-2].upper() != "LISTENING":
+                continue
+            local_addr, pid_text = parts[1], parts[-1]
+            if local_addr.endswith(f":{port}"):
+                with contextlib.suppress(ValueError):
+                    pids.append(int(pid_text))
+        return list(dict.fromkeys(pids))
+    if not shutil.which("lsof"):
+        return []
+    try:
+        completed = subprocess.run(
+            ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+        )
+    except Exception:
+        return []
+    pids = []
+    for line in completed.stdout.splitlines():
+        with contextlib.suppress(ValueError):
+            pids.append(int(line.strip()))
+    return list(dict.fromkeys(pids))
+
+
+def _process_command(pid: int) -> str:
+    if is_windows():
+        try:
+            completed = subprocess.run(
+                ["wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/value"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=2,
+            )
+        except Exception:
+            return ""
+        for line in completed.stdout.splitlines():
+            if line.startswith("CommandLine="):
+                return line.partition("=")[2].strip()
+        return ""
+    try:
+        completed = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+        )
+    except Exception:
+        return ""
+    return completed.stdout.strip()
+
+
+def _looks_like_ccscience_process(command: str) -> bool:
+    value = command.lower()
+    return any(marker in value for marker in (
+        "serve-forwarder",
+        "ccscience_sync.py",
+        "ccscience_sync",
+        "ccscience-sync",
+    ))
+
+
+def _terminate_process_on_port(port: int = THIRDPARTY_FWD_PORT) -> bool:
+    """Best-effort cleanup for an old ccscience-sync forwarder occupying a port."""
+    sent_signal = False
+    current_pid = os.getpid()
+    for pid in _listening_pids_on_port(port):
+        if pid == current_pid:
+            continue
+        command = _process_command(pid)
+        if not command or not _looks_like_ccscience_process(command):
+            continue
+        try:
+            if is_windows():
+                subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, timeout=2)
+            else:
+                os.kill(pid, signal.SIGTERM)
+            sent_signal = True
+        except Exception:
+            continue
+    if not sent_signal:
         return False
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        if not _listening_pids_on_port(port):
+            return True
+        time.sleep(0.1)
+    return True
 
 
 def forwarder_command() -> list[str]:
@@ -1269,6 +2727,9 @@ def ensure_thirdparty_forwarder() -> None:
     It also runs inside the always-on helper, so normally it is already up."""
     if thirdparty_forwarder_healthy():
         return
+    _terminate_process_on_port(THIRDPARTY_FWD_PORT)
+    if thirdparty_forwarder_healthy():
+        return
     with contextlib.suppress(Exception):
         subprocess.Popen(forwarder_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
@@ -1276,6 +2737,7 @@ def ensure_thirdparty_forwarder() -> None:
         if thirdparty_forwarder_healthy():
             return
         time.sleep(0.1)
+    raise SystemExit("third-party forwarder did not become ready")
 
 
 def thirdparty_target() -> dict[str, Any] | None:
@@ -1283,20 +2745,20 @@ def thirdparty_target() -> dict[str, Any] | None:
 
     Priority 1 — DIRECT (self-contained, no CSSwitch needed): a provider entry
     that ccswitch / Claude Code wrote into ~/.claude/settings.json.env
-    (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY). The key gets
-    embedded in the forged login and inference goes straight to the provider.
+    (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY). Inference
+    goes through our localhost forwarder, which injects the key at request time.
     Priority 2 — CSSWITCH-PROXY: a running CSSwitch local proxy holds the key.
     Returns None when neither source is available."""
-    prov = thirdparty_provider()
-    if prov:
-        base, key = prov
+    provider = thirdparty_provider_details()
+    if provider:
+        base, key = provider["base_url"], provider["key"]
         settings = load_json(claude_settings_path(), {})
-        model = strip_context_suffix(str(settings.get("model") or "")) if isinstance(settings, dict) else ""
-        digest = hashlib.sha256((base + "\n" + key).encode("utf-8")).hexdigest()[:16]
+        model = provider.get("model") or (strip_context_suffix(str(settings.get("model") or "")) if isinstance(settings, dict) else "")
+        digest = hashlib.sha256((base + "\n" + key + "\n" + model).encode("utf-8")).hexdigest()[:16]
         # Route through OUR local forwarder (it normalizes the request + injects
         # the key), not straight at the provider.
-        return {"mode": "direct", "base_url": f"http://127.0.0.1:{THIRDPARTY_FWD_PORT}",
-                "provider_base": base, "access_token": key, "model": model,
+        return {"mode": "direct", "base_url": thirdparty_forwarder_base_url(),
+                "provider_base": base, "access_token": None, "model": model,
                 "host": "127.0.0.1", "id": f"direct:{digest}"}
     config = load_csswitch_config()
     proxy_url = csswitch_proxy_url(config)
@@ -1401,19 +2863,31 @@ def current_model_payload() -> dict[str, Any]:
     source_effort = settings.get("effortLevel") or settings.get("effort")
     # ccswitch writes a self-contained provider entry into settings.json.env
     # (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN + ANTHROPIC_DEFAULT_*_MODEL).
-    # When present, ccswitch is asking us to route inference directly to that
-    # provider — bypass the CSSwitch proxy and let Science talk to it natively.
+    # When present, ccswitch is asking us to route inference to that provider.
+    # Normal signed-in launches can pass it through natively; no-login launches
+    # use our localhost forwarder so provider quirks can be normalized.
     env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    direct_base = str(env_block.get("ANTHROPIC_BASE_URL") or "").strip()
-    direct_key_env = "ANTHROPIC_AUTH_TOKEN" if env_block.get("ANTHROPIC_AUTH_TOKEN") else (
-        "ANTHROPIC_API_KEY" if env_block.get("ANTHROPIC_API_KEY") else None
+    selected_provider = thirdparty_provider_details()
+    active_profile = csswitch_active_profile(load_csswitch_config())
+    if selected_provider and selected_provider.get("source") == "claude-settings" and active_profile and \
+            _csswitch_provider_spec(active_profile) and not _provider_matches_profile(
+                selected_provider.get("base_url", ""), active_profile
+            ) and _settings_provider_newer_than_csswitch():
+        bridge["stale"] = True
+    direct_base = selected_provider["base_url"] if selected_provider else ""
+    direct_key_env = selected_provider.get("key_env", "") if selected_provider else (
+        "ANTHROPIC_AUTH_TOKEN" if env_block.get("ANTHROPIC_AUTH_TOKEN") else (
+            "ANTHROPIC_API_KEY" if env_block.get("ANTHROPIC_API_KEY") else ""
+        )
     )
     # ccswitch / Claude Code is the model source of truth: the injected value must
     # be a valid Claude Science model id (claude-*). When ccswitch sets a
     # per-tier override (ANTHROPIC_DEFAULT_<TIER>_MODEL), surface it so the UI
     # label is honest; otherwise inject the mapped Claude Science tier id.
     direct_tier_model = ""
-    if direct_base:
+    if selected_provider and selected_provider.get("model"):
+        direct_tier_model = selected_provider["model"]
+    elif direct_base:
         tier = strip_context_suffix(str(source_model) or "").lower()
         for key, value in env_block.items():
             if not isinstance(value, str) or not value:
@@ -1440,7 +2914,8 @@ def current_model_payload() -> dict[str, Any]:
         "effort": target_effort,
         "settings_path": str(claude_settings_path()),
         "csswitch": bridge,
-        "upstream_mode": "direct" if direct_base else "csswitch-proxy",
+        "upstream_mode": "direct" if selected_provider else "csswitch-proxy",
+        "upstream_source": selected_provider.get("source", "") if selected_provider else "",
         "upstream_base_url": direct_base,
         "upstream_provider_model": direct_tier_model,
         "upstream_key_env": direct_key_env or "",
@@ -1460,10 +2935,12 @@ def runtime_indexes() -> list[pathlib.Path]:
 
 def injection_script(port: int) -> str:
     endpoint = f"http://127.0.0.1:{port}/model"
+    label_endpoint = f"http://127.0.0.1:{THIRDPARTY_FWD_PORT}/thirdparty-label"
     return f"""{MARKER_START}
     <script>
       (function () {{
         var endpoint = {json.dumps(endpoint)};
+        var labelEndpoint = {json.dumps(label_endpoint)};
         var modelKey = "operon-default-model";
         var effortKey = "operon-default-effort";
         var currentModel = null;
@@ -1543,6 +3020,42 @@ def injection_script(port: int) -> str:
           }}
         }}
 
+        // The model picker's names come from operon's own /api/models. When a
+        // third-party provider is answering, relabel those names to the real
+        // model (id stays claude-* so requests are unaffected — display only).
+        function isModelsUrl(url) {{
+          try {{
+            var u = new URL(url, location.href);
+            return u.origin === location.origin && /\\/api\\/models$/.test(u.pathname);
+          }} catch (e) {{ return false; }}
+        }}
+
+        function relabelModels(payload, label) {{
+          if (!payload || !label) return payload;
+          // Only relabel the no-login sandbox UI (the port the forwarder serves),
+          // never the real Claude Science UI running on another port.
+          if (label.sandbox_port &&
+              String(location.port) !== String(label.sandbox_port)) return payload;
+          var tiers = label.tiers || {{}};
+          var fallback = label.display || label.brand;
+          try {{
+            var groups = payload.models;
+            if (groups) {{
+              Object.keys(groups).forEach(function (k) {{
+                var list = groups[k];
+                if (Array.isArray(list)) {{
+                  list.forEach(function (m) {{
+                    if (!m || !m.id) return;
+                    var name = tiers[m.id] || fallback;
+                    if (name) m.name = name;
+                  }});
+                }}
+              }});
+            }}
+          }} catch (e) {{}}
+          return payload;
+        }}
+
         syncBlocking();
         try {{ window.addEventListener("focus", scheduleSync); }} catch (e) {{}}
         try {{
@@ -1562,6 +3075,24 @@ def injection_script(port: int) -> str:
               var method = (init && init.method) ||
                 (input && input.method) ||
                 "GET";
+              if (url && String(method).toUpperCase() === "GET" && isModelsUrl(url)) {{
+                return originalFetch.call(window, labelEndpoint, {{ cache: "no-store" }})
+                  .then(function (r) {{ return r.ok ? r.json() : null; }})
+                  .catch(function () {{ return null; }})
+                  .then(function (label) {{
+                    return originalFetch.call(self, input, init).then(function (resp) {{
+                      if (!resp.ok || !label) return resp;
+                      return resp.clone().json().then(function (payload) {{
+                        var relabeled = JSON.stringify(relabelModels(payload, label));
+                        return new Response(relabeled, {{
+                          status: resp.status,
+                          statusText: resp.statusText,
+                          headers: {{ "Content-Type": "application/json" }}
+                        }});
+                      }}).catch(function () {{ return resp; }});
+                    }});
+                  }});
+              }}
               if (url && String(method).toUpperCase() !== "GET" && shouldPatch(url)) {{
                 return originalFetch.call(window, endpoint, {{ cache: "no-store" }})
                   .then(function (r) {{ return r.ok ? r.json() : null; }})
@@ -1846,11 +3377,21 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"science model: {payload.get('model')}")
     print(f"effort: {payload.get('effort')}")
     if bridge.get("enabled"):
-        print(f"csswitch profile: {bridge.get('profile') or bridge.get('template_id') or 'unknown'}")
+        stale_note = " (stale local config; using newer Claude settings)" if payload.get("csswitch", {}).get("stale") else ""
+        print(f"csswitch profile: {bridge.get('profile') or bridge.get('template_id') or 'unknown'}{stale_note}")
         print(f"csswitch model: {bridge.get('model') or '(uses Claude Code model)'}")
         print(f"csswitch proxy: {'running' if bridge.get('proxy_running') else 'not-running'} ({bridge.get('proxy_url') or bridge.get('config_path')})")
     else:
         print(f"csswitch proxy: disabled ({bridge.get('mode')})")
+    if payload.get("upstream_source"):
+        print(f"thirdparty provider: {payload.get('upstream_source')} ({payload.get('upstream_base_url')})")
+        print(f"thirdparty model: {payload.get('upstream_provider_model') or '(uses request model)'}")
+        print(f"thirdparty key: {payload.get('upstream_key_env') or '(configured)'}")
+        health = _thirdparty_forwarder_health()
+        if health:
+            print(f"thirdparty forwarder: running (rev {health.get('forwarder_revision')}, pid {health.get('pid')})")
+        else:
+            print("thirdparty forwarder: not-running")
     sandbox = sandbox_daemon_status()
     if sandbox.get("running"):
         print(f"thirdparty sandbox: running (port {sandbox.get('port')})")
@@ -1871,6 +3412,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_open_science(args: argparse.Namespace) -> int:
     lang = detect_language()
     env, _bridge = science_launch_environment()
+    if env and env.get("ANTHROPIC_BASE_URL") == thirdparty_forwarder_base_url():
+        ensure_thirdparty_forwarder()
     url = fresh_claude_science_url(lang, env=env)
     if args.print_only:
         print(url)
@@ -1925,6 +3468,10 @@ def localize_cli_output(text: str, lang: str) -> str:
         ("csswitch profile:", "CSSwitch 配置："),
         ("csswitch model:", "CSSwitch 模型："),
         ("csswitch proxy:", "CSSwitch 代理："),
+        ("thirdparty provider:", "第三方来源："),
+        ("thirdparty model:", "第三方模型："),
+        ("thirdparty key:", "第三方密钥来源："),
+        ("thirdparty forwarder:", "第三方转发器："),
         ("thirdparty sandbox:", "第三方免登录沙箱："),
         ("not-forged", "未伪造登录"),
         ("forged", "已伪造登录"),
@@ -1940,6 +3487,7 @@ def localize_cli_output(text: str, lang: str) -> str:
         ("not-running", "未运行"),
         ("disabled", "未启用"),
         ("unknown", "未知"),
+        ("(stale local config; using newer Claude settings)", "（本地配置已旧，正在使用更新的 Claude settings）"),
         ("(uses Claude Code model)", "（使用 Claude Code 模型）"),
         ("not-installed", "未安装"),
         ("running", "运行中"),
@@ -1983,6 +3531,11 @@ def gui_open_science(lang: str) -> tuple[int, str]:
 def gui_open_thirdparty(lang: str) -> tuple[int, str]:
     def action() -> int:
         url, bridge = open_thirdparty(lang)
+        # The CLI path (cmd_open_thirdparty) opens the browser itself; the GUI
+        # button must do the same so a click actually lands the user in the
+        # no-login web UI instead of only printing the URL.
+        with contextlib.suppress(Exception):
+            webbrowser.open(url)
         print(tr(lang, "opened_thirdparty", url=url, email=VIRTUAL_EMAIL,
                  model=bridge.get("model") or "CSSwitch"))
         return 0
