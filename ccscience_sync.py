@@ -26,12 +26,14 @@ import plistlib
 import re
 import secrets
 import shutil
+import socket
 import struct
 import subprocess
 import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 import uuid
 import webbrowser
@@ -39,8 +41,9 @@ from typing import Any
 
 
 APP_NAME = "ccscience-sync"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 DEFAULT_PORT = 19783
+THIRDPARTY_FWD_PORT = 19784  # our own hidden normalizing forwarder (no CSSwitch)
 MACOS_LABEL = "io.github.ccscience-sync.helper"
 MARKER_START = "<!-- ccscience-sync:start -->"
 MARKER_END = "<!-- ccscience-sync:end -->"
@@ -153,7 +156,7 @@ TEXT = {
             "1. Click \"①  Install / Update\" once. That is the whole setup.\n"
             "2. Click \"Open Claude Science\" to use it. New sessions follow the model you pick "
             "in ccswitch / Claude Code.\n"
-            "3. No Claude account? Keep a CSSwitch third-party proxy running, then click "
+            "3. No Claude account? Pick a third-party model in CC.Switch, then click "
             "\"Third-Party (No Login)\".\n\n"
             "You do not need to reinstall after switching models."
         ),
@@ -166,15 +169,16 @@ TEXT = {
         "science_url_missing": "Could not get a Claude Science URL from the claude-science command.",
         "open_thirdparty": "Third-Party (No Login)",
         "open_thirdparty_action": "Third-Party (No Login)",
-        "thirdparty_needs_proxy": (
-            "Third-party no-login mode needs the CSSwitch local proxy running.\n"
-            "Open CSSwitch, pick a third-party profile, and keep its proxy running, then try again."
+        "thirdparty_needs_source": (
+            "Third-party no-login mode needs a third-party model source.\n"
+            "Either configure a third-party API (base URL + key) in ccswitch / Claude Code, "
+            "or open CSSwitch, pick a profile, and keep its local proxy running. Then try again."
         ),
         "opened_thirdparty": (
             "Opened an isolated, no-login Claude Science:\n{url}\n\n"
             "This runs a separate local instance with a locally generated virtual login "
             "({email}). It never touches your real Claude account or ~/.claude-science, and all "
-            "inference goes through your CSSwitch third-party API ({model})."
+            "inference goes through your own third-party API ({model})."
         ),
         "thirdparty_launch_failed": "Could not start the isolated Claude Science sandbox: {detail}",
     },
@@ -199,7 +203,7 @@ TEXT = {
             "欢迎！三步即可开始：\n\n"
             "1. 先点一次「①  一键安装 / 更新」，安装就完成了。\n"
             "2. 点「打开 Claude Science」开始使用。新会话会自动用你在 ccswitch / Claude Code 里选的模型。\n"
-            "3. 没有 Claude 账号？让 CSSwitch 第三方代理保持运行，再点「第三方免登录」。\n\n"
+            "3. 没有 Claude 账号？在 CC.Switch 里选一个第三方模型，再点「第三方免登录」。\n\n"
             "以后切换模型不用重新安装。"
         ),
         "gui_error": "无法启动图形界面：{error}",
@@ -211,14 +215,15 @@ TEXT = {
         "science_url_missing": "无法从 claude-science 命令获取 Claude Science 链接。",
         "open_thirdparty": "第三方免登录",
         "open_thirdparty_action": "第三方免登录",
-        "thirdparty_needs_proxy": (
-            "第三方免登录模式需要 CSSwitch 本地代理正在运行。\n"
-            "请打开 CSSwitch，选择一个第三方配置并保持其本地代理运行，然后重试。"
+        "thirdparty_needs_source": (
+            "第三方免登录需要一个第三方模型来源。\n"
+            "在 ccswitch / Claude Code 里配好第三方 API（base_url + key），"
+            "或打开 CSSwitch 选一个配置并保持其本地代理运行，然后重试。"
         ),
         "opened_thirdparty": (
             "已打开一个隔离的、免登录的 Claude Science：\n{url}\n\n"
             "这是一个独立的本地实例，使用本机生成的虚拟登录（{email}），"
-            "绝不触碰你真实的 Claude 账号或 ~/.claude-science；全部推理都经由你的 CSSwitch 第三方 API（{model}）。"
+            "绝不触碰你真实的 Claude 账号或 ~/.claude-science；全部推理都经由你自己的第三方 API（{model}）。"
         ),
         "thirdparty_launch_failed": "无法启动隔离的 Claude Science 沙箱：{detail}",
     },
@@ -797,10 +802,17 @@ def _parse_key_file(text: str) -> dict[str, str]:
     return out
 
 
-def forge_virtual_oauth(auth_dir: pathlib.Path, email: str = VIRTUAL_EMAIL, force: bool = False) -> dict[str, Any]:
+def forge_virtual_oauth(auth_dir: pathlib.Path, email: str = VIRTUAL_EMAIL, force: bool = False,
+                        access_token: str | None = None) -> dict[str, Any]:
     """Write a self-generated virtual OAuth session into an ISOLATED auth dir so
     Claude Science reports authenticated=true without any real Claude account.
-    Hard guardrails refuse to write into the real credential directory."""
+    Hard guardrails refuse to write into the real credential directory.
+
+    In self-contained direct mode, access_token is the real third-party API key:
+    Claude Science resolves credentials OAuth-only and sends this token as the
+    request Authorization, so embedding the key here lets inference reach the
+    provider with no proxy in the path. When omitted, a throwaway placeholder is
+    used (the CSSwitch proxy swaps in the real key instead)."""
     resolved = _real_ancestor(auth_dir)
     real_dir = _real_ancestor(home() / ".claude-science")
     if resolved == real_dir:
@@ -832,8 +844,9 @@ def forge_virtual_oauth(auth_dir: pathlib.Path, email: str = VIRTUAL_EMAIL, forc
 
     account_uuid = str(uuid.uuid4())
     org_uuid = str(uuid.uuid4())
+    real_token = access_token.strip() if isinstance(access_token, str) else ""
     blob = {
-        "access_token": "sk-ant-virtual-" + secrets.token_hex(24),
+        "access_token": real_token or ("sk-ant-virtual-" + secrets.token_hex(24)),
         "refresh_token": "",
         "api_key": None,
         "token_expires_at": "2099-01-01T00:00:00.000Z",
@@ -956,34 +969,50 @@ def _proxy_hostport(proxy_url: str) -> str:
     return match.group(1) if match else "127.0.0.1"
 
 
-def sandbox_launch_env(proxy_url: str) -> dict[str, str]:
+def _url_host(url: str) -> str:
+    match = re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:]+)", url)
+    return match.group(1) if match else ""
+
+
+def _dead_local_proxy() -> str:
+    """A 127.0.0.1 URL on a currently-unbound port. Pointing https_proxy here
+    makes the daemon's blocking Anthropic oauth/profile probe fail instantly
+    (connection refused) so it treats itself as logged-out — the self-contained
+    replacement for the CSSwitch CONNECT fast-fail, with no proxy process."""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    finally:
+        sock.close()
+    return f"http://127.0.0.1:{port}"
+
+
+def sandbox_launch_env(target: dict[str, Any]) -> dict[str, str]:
     env = dict(os.environ)
     env["HOME"] = str(sandbox_home())
-    # If ccswitch wrote its own provider entry into settings.json.env, honor it
-    # verbatim and skip the CSSwitch proxy routing entirely.
-    settings = load_json(claude_settings_path(), {})
-    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    direct_base = str(env_block.get("ANTHROPIC_BASE_URL") or "").strip()
-    if direct_base:
-        env["ANTHROPIC_BASE_URL"] = direct_base
-        if env_block.get("ANTHROPIC_AUTH_TOKEN"):
-            env["ANTHROPIC_AUTH_TOKEN"] = str(env_block["ANTHROPIC_AUTH_TOKEN"])
-        elif env_block.get("ANTHROPIC_API_KEY"):
-            env["ANTHROPIC_API_KEY"] = str(env_block["ANTHROPIC_API_KEY"])
-        for key, value in env_block.items():
-            if isinstance(value, str) and key.startswith("ANTHROPIC_"):
-                env[key] = value
-        # Still fast-fail Anthropic HTTPS (the blocking oauth/profile probe) via
-        # the CSSwitch CONNECT handler so the daemon treats itself as logged-out
-        # and skips the "Switching organization" hang.
-        fastfail = f"http://{_proxy_hostport(proxy_url)}"
-        env["https_proxy"] = fastfail
-        env["HTTPS_PROXY"] = fastfail
-        env["no_proxy"] = "127.0.0.1,localhost,::1"
-        env["NO_PROXY"] = "127.0.0.1,localhost,::1"
+    base_url = str(target.get("base_url") or "")
+    env["ANTHROPIC_BASE_URL"] = base_url
+    if target.get("mode") == "direct":
+        # Self-contained direct mode: the real third-party key rides inside the
+        # forged OAuth token, so the daemon talks straight to the provider. Point
+        # https_proxy at a dead local port so the blocking Anthropic oauth/profile
+        # probe fails instantly (daemon treats itself as logged-out), and put the
+        # provider host in no_proxy so inference bypasses that dead proxy and
+        # reaches the provider directly. No CSSwitch, no proxy process.
+        host = _url_host(base_url)
+        dead = _dead_local_proxy()
+        env["https_proxy"] = dead
+        env["HTTPS_PROXY"] = dead
+        no_proxy = "127.0.0.1,localhost,::1" + (f",{host}" if host else "")
+        env["no_proxy"] = no_proxy
+        env["NO_PROXY"] = no_proxy
         return env
-    env["ANTHROPIC_BASE_URL"] = proxy_url
-    fastfail = f"http://{_proxy_hostport(proxy_url)}"
+    # CSSwitch proxy mode: route inference through the local proxy (ANTHROPIC_BASE_URL
+    # is the proxy) and fast-fail Anthropic HTTPS via the same proxy host's CONNECT
+    # handler so the daemon skips the "Switching organization" hang.
+    fastfail = f"http://{_proxy_hostport(base_url)}"
     env["https_proxy"] = fastfail
     env["HTTPS_PROXY"] = fastfail
     env["no_proxy"] = "127.0.0.1,localhost,::1"
@@ -1022,25 +1051,34 @@ def launched_proxy_url() -> str | None:
         return None
 
 
-def start_sandbox_daemon(port: int, proxy_url: str, lang: str = "en") -> None:
+def start_sandbox_daemon(port: int, target: dict[str, Any], lang: str = "en") -> None:
     _assert_sandbox_guardrails(port)
     binary = claude_science_bin()
     if not binary:
         raise SystemExit(tr(lang, "science_cli_missing"))
     ensure_sandbox_runtime()
     ensure_sandbox_keychain()
-    if not sandbox_has_valid_token(sandbox_data_dir()):
+    access_token = str(target.get("access_token") or "")
+    if access_token:
+        # Direct mode: refresh the token so it carries the current real key (a
+        # stale throwaway token from a prior proxy-mode run must not linger).
+        # force=False REUSES the existing encryption.key so it stays consistent
+        # with the daemon's macOS-Keychain copy — regenerating the key would make
+        # the daemon fall back to the stale keychain key ("ensureEncryptionKeys:
+        # ... using the macOS Keychain copy") and fail to read the forged token.
+        forge_virtual_oauth(sandbox_data_dir(), access_token=access_token, force=False)
+    elif not sandbox_has_valid_token(sandbox_data_dir()):
         forge_virtual_oauth(sandbox_data_dir())
     cmd = [str(binary), "serve", "--data-dir", str(sandbox_data_dir()),
            "--port", str(port), "--no-browser", "--no-auto-update", "--detached"]
-    result = run(cmd, env=sandbox_launch_env(proxy_url))
+    result = run(cmd, env=sandbox_launch_env(target))
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()[:500]
         raise SystemExit(tr(lang, "thirdparty_launch_failed", detail=detail or f"exit {result.returncode}"))
     for _ in range(20):  # wait up to ~10s for the daemon socket to come up
         if sandbox_daemon_status().get("running"):
             with contextlib.suppress(OSError):
-                launched_proxy_path().write_text(proxy_url, encoding="utf-8")
+                launched_proxy_path().write_text(str(target.get("id") or ""), encoding="utf-8")
             return
         time.sleep(0.5)
     raise SystemExit(tr(lang, "thirdparty_launch_failed", detail="daemon did not become ready within ~10s"))
@@ -1056,11 +1094,11 @@ def stop_sandbox_daemon() -> str:
     return "stopped" if result.returncode == 0 else "not-running"
 
 
-def sandbox_url(port: int, proxy_url: str) -> str:
+def sandbox_url(port: int, target: dict[str, Any]) -> str:
     binary = claude_science_bin()
     if not binary:
         raise SystemExit(tr("en", "science_cli_missing"))
-    env = sandbox_launch_env(proxy_url)
+    env = sandbox_launch_env(target)
     result = run([str(binary), "url", "--data-dir", str(sandbox_data_dir())], env=env)
     match = re.search(r"https?://[^\s]+", f"{result.stdout}\n{result.stderr}")
     if result.returncode == 0 and match:
@@ -1068,27 +1106,234 @@ def sandbox_url(port: int, proxy_url: str) -> str:
     raise SystemExit(tr("en", "science_url_missing"))
 
 
-def open_thirdparty(lang: str = "en", restart: bool = False) -> tuple[str, dict[str, Any]]:
-    """Forge + launch (or reuse) the isolated no-login sandbox pointed at the
-    CSSwitch proxy, then return a fresh browser URL for it."""
-    bridge = csswitch_bridge_payload(check_health=True)
+# ---------------------------------------------------------------------------
+# Self-contained third-party forwarder (no CSSwitch needed)
+#
+# Claude Science (operon) speaks the Anthropic Messages API, but sends a few
+# fields that stricter third-party endpoints reject — notably thinking.type
+# "auto" (DeepSeek/MiniMax only accept adaptive/enabled/disabled). This tiny
+# local forwarder sits in front of the provider: it normalizes the request,
+# injects the user's key, and streams the response back. The pure-Python virtual
+# login stays ours; this replaces the need to run a separate CSSwitch proxy.
+# Request normalization mirrors CSSwitch's normalize_thinking
+# (MIT-licensed, github.com/SuperJJ007/CSSwitch).
+# ---------------------------------------------------------------------------
+
+
+def normalize_thirdparty_request(body: dict[str, Any], host: str) -> dict[str, Any]:
+    """Rewrite operon's Anthropic request for stricter third-party endpoints.
+    thinking.type "auto" -> "adaptive" (DeepSeek/MiniMax accept adaptive); for
+    DeepSeek a forced tool_choice conflicts with thinking, so disable it."""
+    is_deepseek = "deepseek" in host.lower()
+    tc = body.get("tool_choice")
+    forcing = isinstance(tc, dict) and tc.get("type") in ("any", "tool")
+    if forcing and is_deepseek:
+        body["thinking"] = {"type": "disabled"}
+        return body
+    th = body.get("thinking")
+    if isinstance(th, dict) and th.get("type") == "auto":
+        th = dict(th)
+        th["type"] = "adaptive"
+        body["thinking"] = th
+    return body
+
+
+def thirdparty_provider() -> tuple[str, str] | None:
+    """(base_url, key) for the direct third-party. Priority: an explicit env
+    override (CCSCIENCE_TP_BASE / CCSCIENCE_TP_KEY — also the test hook), then the
+    provider entry ccswitch / Claude Code wrote into ~/.claude/settings.json.env."""
+    base = os.environ.get("CCSCIENCE_TP_BASE", "").strip()
+    key = os.environ.get("CCSCIENCE_TP_KEY", "").strip()
+    if base and key:
+        return base, key
+    settings = load_json(claude_settings_path(), {})
+    if not isinstance(settings, dict):
+        settings = {}
+    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+    base = str(env_block.get("ANTHROPIC_BASE_URL") or "").strip()
+    key = str(env_block.get("ANTHROPIC_AUTH_TOKEN") or env_block.get("ANTHROPIC_API_KEY") or "").strip()
+    return (base, key) if base and key else None
+
+
+class ThirdpartyForwardHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    server_version = "ccscience-forwarder"
+
+    def log_message(self, *a: Any) -> None:
+        pass
+
+    def _reply(self, code: int, body: bytes, ct: str = "application/json") -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        with contextlib.suppress(OSError):
+            self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        # operon fetches <ANTHROPIC_BASE_URL>/v1/models to learn which models are
+        # runnable; if that fetch fails it marks every model "unavailable" and
+        # rejects requests. Answer with the Claude tier ids operon already knows
+        # — third-party endpoints (DeepSeek/MiniMax) map claude-* to their own
+        # models, so these stay valid targets.
+        if self.path.startswith("/v1/models"):
+            models = [{"type": "model", "id": mid, "display_name": name}
+                      for mid, name in (("claude-opus-4-8", "Claude Opus 4.8"),
+                                        ("claude-sonnet-5", "Claude Sonnet 5"),
+                                        ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+                                        ("claude-haiku-4-5", "Claude Haiku 4.5"))]
+            self._reply(200, json.dumps({"data": models, "has_more": False}).encode())
+            return
+        self._reply(404, b'{"type":"error","error":{"message":"not found"}}')
+
+    def do_POST(self) -> None:
+        prov = thirdparty_provider()
+        if not prov:
+            self._reply(503, b'{"type":"error","error":{"message":"no third-party provider configured"}}')
+            return
+        base, key = prov
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(n) if n else b"{}"
+        stream = "text/event-stream" in (self.headers.get("Accept") or "")
+        try:
+            body = json.loads(raw)
+            normalize_thirdparty_request(body, _url_host(base))
+            stream = bool(body.get("stream"))
+            raw = json.dumps(body).encode()
+        except (ValueError, TypeError):
+            pass  # forward non-JSON verbatim
+        url = base.rstrip("/") + (self.path if self.path.startswith("/") else "/" + self.path)
+        headers = {"content-type": "application/json", "anthropic-version": "2023-06-01",
+                   "x-api-key": key, "authorization": f"Bearer {key}"}
+        beta = self.headers.get("anthropic-beta")
+        if beta:
+            headers["anthropic-beta"] = beta
+        req = urllib.request.Request(url, data=raw, method="POST", headers=headers)
+        try:
+            up = urllib.request.urlopen(req, timeout=300)
+        except urllib.error.HTTPError as exc:
+            self._reply(exc.code, exc.read(), exc.headers.get("Content-Type", "application/json"))
+            return
+        except Exception as exc:  # noqa: BLE001 — surface any network error to the client
+            self._reply(502, json.dumps({"type": "error", "error": {"message": str(exc)}}).encode())
+            return
+        ct = up.headers.get("Content-Type", "application/json")
+        if not stream:
+            with up:
+                data = up.read()
+            self._reply(up.getcode() or 200, data, ct)
+            return
+        # Streaming: relay the upstream SSE with chunked transfer, like CSSwitch.
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        try:
+            with up:
+                while True:
+                    chunk = up.read(4096)
+                    if not chunk:
+                        break
+                    self.wfile.write(hex(len(chunk))[2:].encode() + b"\r\n" + chunk + b"\r\n")
+                    self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+        except OSError:
+            pass  # client hung up mid-stream
+
+
+def serve_thirdparty_forwarder(port: int = THIRDPARTY_FWD_PORT) -> None:
+    with contextlib.suppress(OSError):
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), ThirdpartyForwardHandler)
+        httpd.serve_forever()
+
+
+def thirdparty_forwarder_healthy(port: int = THIRDPARTY_FWD_PORT) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def forwarder_command() -> list[str]:
+    executable = ensure_frozen_install_target() if is_frozen() else pathlib.Path(sys.executable)
+    if is_frozen():
+        return [str(executable), "serve-forwarder"]
+    return [str(executable), str(pathlib.Path(__file__).resolve()), "serve-forwarder"]
+
+
+def ensure_thirdparty_forwarder() -> None:
+    """Make sure our hidden forwarder is listening; spawn a detached one if not.
+    It also runs inside the always-on helper, so normally it is already up."""
+    if thirdparty_forwarder_healthy():
+        return
+    with contextlib.suppress(Exception):
+        subprocess.Popen(forwarder_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(30):
+        if thirdparty_forwarder_healthy():
+            return
+        time.sleep(0.1)
+
+
+def thirdparty_target() -> dict[str, Any] | None:
+    """Decide how the no-login sandbox reaches a third-party model.
+
+    Priority 1 — DIRECT (self-contained, no CSSwitch needed): a provider entry
+    that ccswitch / Claude Code wrote into ~/.claude/settings.json.env
+    (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY). The key gets
+    embedded in the forged login and inference goes straight to the provider.
+    Priority 2 — CSSWITCH-PROXY: a running CSSwitch local proxy holds the key.
+    Returns None when neither source is available."""
+    prov = thirdparty_provider()
+    if prov:
+        base, key = prov
+        settings = load_json(claude_settings_path(), {})
+        model = strip_context_suffix(str(settings.get("model") or "")) if isinstance(settings, dict) else ""
+        digest = hashlib.sha256((base + "\n" + key).encode("utf-8")).hexdigest()[:16]
+        # Route through OUR local forwarder (it normalizes the request + injects
+        # the key), not straight at the provider.
+        return {"mode": "direct", "base_url": f"http://127.0.0.1:{THIRDPARTY_FWD_PORT}",
+                "provider_base": base, "access_token": key, "model": model,
+                "host": "127.0.0.1", "id": f"direct:{digest}"}
     config = load_csswitch_config()
     proxy_url = csswitch_proxy_url(config)
-    if not (bridge.get("enabled") and bridge.get("proxy_running") and proxy_url):
-        raise SystemExit(tr(lang, "thirdparty_needs_proxy"))
+    bridge = csswitch_bridge_payload(check_health=True)
+    if bridge.get("enabled") and bridge.get("proxy_running") and proxy_url:
+        return {"mode": "csswitch-proxy", "base_url": proxy_url, "access_token": None,
+                "model": str(bridge.get("model") or ""), "host": _proxy_hostport(proxy_url),
+                "id": f"proxy:{proxy_url}"}
+    return None
+
+
+def open_thirdparty(lang: str = "en", restart: bool = False) -> tuple[str, dict[str, Any]]:
+    """Forge + launch (or reuse) the isolated no-login sandbox pointed at a
+    third-party model, then return a fresh browser URL. Prefers a self-contained
+    direct provider (ccswitch/Claude Code env); otherwise a running CSSwitch
+    local proxy."""
+    target = thirdparty_target()
+    if not target:
+        raise SystemExit(tr(lang, "thirdparty_needs_source"))
+    if target["mode"] == "direct":
+        # Our hidden forwarder must be up before the daemon points at it.
+        ensure_thirdparty_forwarder()
     port = _int_port(os.environ.get("CCSCIENCE_SANDBOX_PORT"), SANDBOX_PORT_DEFAULT)
     running = sandbox_daemon_status().get("running")
-    # A live daemon has its ANTHROPIC_BASE_URL baked in at launch; if the proxy
-    # endpoint changed since then, reuse would silently misroute inference, so
-    # restart to pick up the new target.
-    stale = running and launched_proxy_url() not in (None, proxy_url)
+    # A live daemon has its target baked in at launch; if the target changed
+    # (proxy endpoint, or the direct provider/key), reuse would misroute
+    # inference, so restart to pick up the new one.
+    stale = running and launched_proxy_url() not in (None, target["id"])
     if restart or stale:
         stop_sandbox_daemon()
         running = False
     if not running:
-        start_sandbox_daemon(port, proxy_url, lang)
-    url = sandbox_url(port, proxy_url)
-    return url, bridge
+        start_sandbox_daemon(port, target, lang)
+    url = sandbox_url(port, target)
+    # Never hand the real key back to callers/log output.
+    return url, {"mode": target["mode"], "base_url": target["base_url"],
+                 "model": target["model"], "host": target["host"]}
 
 
 def strip_context_suffix(model: str) -> str:
@@ -1415,6 +1660,9 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
 
 
 def serve(port: int) -> None:
+    # Host the hidden third-party forwarder alongside the model helper so the
+    # no-login sandbox has it available without a separate process.
+    threading.Thread(target=serve_thirdparty_forwarder, daemon=True).start()
     address = ("127.0.0.1", port)
     httpd = http.server.ThreadingHTTPServer(address, ModelHandler)
     print(f"ccscience-sync serving on http://127.0.0.1:{port}/model", flush=True)
@@ -1559,6 +1807,11 @@ def cmd_model(_: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     serve(args.port)
+    return 0
+
+
+def cmd_serve_forwarder(args: argparse.Namespace) -> int:
+    serve_thirdparty_forwarder(args.port)
     return 0
 
 
@@ -1888,6 +2141,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="run the localhost model helper")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("serve-forwarder", help="run the hidden third-party normalizing forwarder")
+    p.add_argument("--port", type=int, default=THIRDPARTY_FWD_PORT)
+    p.set_defaults(func=cmd_serve_forwarder)
 
     p = sub.add_parser("install", help="patch Claude Science and install the helper autostart entry")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)

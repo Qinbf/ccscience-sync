@@ -300,6 +300,26 @@ class VirtualOAuthForgeTests(unittest.TestCase):
             self.assertEqual(len(list((auth / ".oauth-tokens").glob("*.enc"))), 1)
             self.assertNotEqual(first["account_uuid"], second["account_uuid"])
 
+    def test_forge_embeds_real_access_token_for_direct_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = self._sandbox(tmp)
+            ccscience_sync.forge_virtual_oauth(auth, access_token="sk-real-provider-key", force=True)
+            keys = ccscience_sync._parse_key_file((auth / "encryption.key").read_text())
+            enc = next(iter((auth / ".oauth-tokens").glob("*.enc"))).read_text()
+            blob = json.loads(ccscience_sync.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
+            # The real provider key rides as the OAuth access_token so Claude
+            # Science sends it straight to the provider (no proxy in the path).
+            self.assertEqual(blob["access_token"], "sk-real-provider-key")
+
+    def test_forge_without_token_uses_throwaway_placeholder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = self._sandbox(tmp)
+            ccscience_sync.forge_virtual_oauth(auth)
+            keys = ccscience_sync._parse_key_file((auth / "encryption.key").read_text())
+            enc = next(iter((auth / ".oauth-tokens").glob("*.enc"))).read_text()
+            blob = json.loads(ccscience_sync.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
+            self.assertTrue(blob["access_token"].startswith("sk-ant-virtual-"))
+
     def test_refuses_real_credential_dir(self):
         with self.assertRaises(SystemExit):
             ccscience_sync.forge_virtual_oauth(ccscience_sync.home() / ".claude-science")
@@ -322,41 +342,75 @@ class VirtualOAuthForgeTests(unittest.TestCase):
 
 
 class SandboxLaunchEnvTests(unittest.TestCase):
-    def test_launch_env_routes_inference_and_fastfails_anthropic(self):
+    def test_launch_env_proxy_mode_routes_and_fastfails_anthropic(self):
         with mock.patch.object(ccscience_sync, "home", return_value=pathlib.Path(tempfile.gettempdir())):
-            with mock.patch.object(ccscience_sync, "claude_settings_path",
-                                   return_value=pathlib.Path(tempfile.gettempdir()) / "no-such-settings.json"):
-                env = ccscience_sync.sandbox_launch_env("http://127.0.0.1:18991/secret123")
+            env = ccscience_sync.sandbox_launch_env(
+                {"mode": "csswitch-proxy", "base_url": "http://127.0.0.1:18991/secret123"})
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18991/secret123")
         self.assertEqual(env["https_proxy"], "http://127.0.0.1:18991")
         self.assertEqual(env["HTTPS_PROXY"], "http://127.0.0.1:18991")
         self.assertIn("127.0.0.1", env["no_proxy"])
-        self.assertTrue(env["HOME"].endswith(".sandbox/home") or ".sandbox" in env["HOME"])
+        self.assertIn(".sandbox", env["HOME"])
 
-    def test_sandbox_launch_env_honors_ccswitch_direct_env(self):
-        # Same direct-env test but for the no-login sandbox daemon's env.
+    def test_launch_env_direct_mode_routes_to_provider_and_fastfails(self):
         with mock.patch.object(ccscience_sync, "home", return_value=pathlib.Path(tempfile.gettempdir())):
-            with mock.patch.object(ccscience_sync, "claude_settings_path",
-                                   return_value=pathlib.Path(tempfile.gettempdir()) / "no-such.json"):
-                with mock.patch.object(ccscience_sync, "load_json",
-                                       return_value={"env": {
-                                           "ANTHROPIC_BASE_URL": "https://api.minimaxi.com/anthropic",
-                                           "ANTHROPIC_AUTH_TOKEN": "sk-cp-test",
-                                       }}):
-                    env = ccscience_sync.sandbox_launch_env("http://127.0.0.1:18991/secret123")
-        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://api.minimaxi.com/anthropic")
-        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-cp-test")
-        # Still fast-fails Anthropic HTTPS via the CSSwitch CONNECT handler
-        self.assertEqual(env["https_proxy"], "http://127.0.0.1:18991")
+            env = ccscience_sync.sandbox_launch_env(
+                {"mode": "direct", "base_url": "https://api.deepseek.com/anthropic"})
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic")
+        # Provider host bypasses the dead proxy so inference reaches it directly.
+        self.assertIn("api.deepseek.com", env["no_proxy"])
+        # Anthropic HTTPS fast-fails via a dead local port — no proxy process.
+        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"))
+        self.assertNotIn("18991", env["https_proxy"])
 
-    def test_open_thirdparty_requires_running_proxy(self):
-        with mock.patch.object(
-            ccscience_sync, "csswitch_bridge_payload",
-            return_value={"enabled": False, "proxy_running": False, "mode": "missing"},
-        ):
+    def test_thirdparty_target_prefers_direct_env(self):
+        with mock.patch.dict(ccscience_sync.os.environ, {"CCSCIENCE_TP_BASE": "", "CCSCIENCE_TP_KEY": ""}):
+            with mock.patch.object(ccscience_sync, "load_json", return_value={
+                "model": "deepseek-v4-pro",
+                "env": {"ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+                        "ANTHROPIC_AUTH_TOKEN": "sk-real-key"},
+            }):
+                target = ccscience_sync.thirdparty_target()
+        self.assertEqual(target["mode"], "direct")
+        # Routed through OUR forwarder; the real provider is kept in provider_base.
+        self.assertEqual(target["base_url"], f"http://127.0.0.1:{ccscience_sync.THIRDPARTY_FWD_PORT}")
+        self.assertEqual(target["provider_base"], "https://api.deepseek.com/anthropic")
+        self.assertEqual(target["access_token"], "sk-real-key")
+
+    def test_normalize_thinking_auto_to_adaptive(self):
+        # operon sends thinking.type "auto"; DeepSeek/MiniMax only accept adaptive.
+        body = ccscience_sync.normalize_thirdparty_request(
+            {"thinking": {"type": "auto"}}, "api.deepseek.com")
+        self.assertEqual(body["thinking"]["type"], "adaptive")
+
+    def test_normalize_thinking_deepseek_forced_tool_disables(self):
+        body = ccscience_sync.normalize_thirdparty_request(
+            {"thinking": {"type": "auto"}, "tool_choice": {"type": "any"}}, "api.deepseek.com")
+        self.assertEqual(body["thinking"]["type"], "disabled")
+
+    def test_thirdparty_target_falls_back_to_running_proxy(self):
+        with mock.patch.object(ccscience_sync, "load_json", return_value={"env": {}}):
+            with mock.patch.object(ccscience_sync, "csswitch_proxy_url",
+                                   return_value="http://127.0.0.1:18991/secret"):
+                with mock.patch.object(ccscience_sync, "csswitch_bridge_payload",
+                                       return_value={"enabled": True, "proxy_running": True,
+                                                     "model": "deepseek-v4-pro"}):
+                    target = ccscience_sync.thirdparty_target()
+        self.assertEqual(target["mode"], "csswitch-proxy")
+        self.assertEqual(target["base_url"], "http://127.0.0.1:18991/secret")
+
+    def test_thirdparty_target_none_without_any_source(self):
+        with mock.patch.object(ccscience_sync, "load_json", return_value={"env": {}}):
+            with mock.patch.object(ccscience_sync, "csswitch_proxy_url", return_value=None):
+                with mock.patch.object(ccscience_sync, "csswitch_bridge_payload",
+                                       return_value={"enabled": False, "proxy_running": False}):
+                    self.assertIsNone(ccscience_sync.thirdparty_target())
+
+    def test_open_thirdparty_requires_a_source(self):
+        with mock.patch.object(ccscience_sync, "thirdparty_target", return_value=None):
             with self.assertRaises(SystemExit) as raised:
                 ccscience_sync.open_thirdparty("en")
-        self.assertEqual(str(raised.exception), ccscience_sync.tr("en", "thirdparty_needs_proxy"))
+        self.assertEqual(str(raised.exception), ccscience_sync.tr("en", "thirdparty_needs_source"))
 
 
 class SandboxRuntimeTests(unittest.TestCase):

@@ -51,29 +51,28 @@ runtime patch: installed (...)
 updates to a new version (Check Status then shows `runtime patch: not-installed`).
 Switching models never needs it.
 
-## Names (they look alike — don't mix them up)
+## Names (don't mix them up)
 
-- **CC.Switch (cc-switch)** — the app **you use to switch models**; it decides which
-  model/provider Claude Code and Claude Science use. **This is what this tool works with.**
-- **CSSwitch** — a **separate app** (similar name, not the same one). It is only used by
-  the **"Third-Party (No Login)"** mode below, i.e. when you have **no Claude account
-  at all**. With a Claude account you never need it.
+- **CC.Switch (cc-switch)** — the app **you use to switch models / configure a third-party
+  API**; it decides which model or provider Claude Code and Claude Science use. **This is
+  the only thing this tool works with.**
 
 ## Optional: "Third-Party (No Login)" when you have no Claude account
 
-Only needed if you have **no Claude account** but do have a third-party model API (via
-CSSwitch). **With a Claude account, skip this section.**
+Only needed if you have **no Claude account** but do have a third-party model API (e.g.
+DeepSeek, MiniMax). **With a Claude account, skip this section.**
 
-1. Open CSSwitch, select a third-party profile, and keep its local proxy running
+1. Pick a third-party model in CC.Switch (it writes that provider's endpoint + your API key)
 2. Click **`Third-Party (No Login)`** in this app
 3. Claude Science opens ready to use — no account, no sign-in screen
 
 It launches a **separate, isolated** Claude Science (its own directory and port, and it
 **never touches** your real `~/.claude-science` or real login), starts it with a locally
-generated virtual login, and routes all inference through the CSSwitch local proxy to your
-own third-party API key. This does **not** bypass Anthropic account auth — inference never
-reaches Anthropic; the virtual login only lets the local program start. Click `Uninstall`
-to stop it.
+generated virtual login, and routes inference through **this tool's own hidden local
+forwarder** (which normalizes the request for your third-party endpoint and adds your key)
+straight to your own third-party API. **No extra software needed.** This does **not** bypass
+Anthropic account auth — inference never reaches Anthropic; the virtual login only lets the
+local program start. Click `Uninstall` to stop it.
 
 ## Uninstall
 

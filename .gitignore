@@ -11,3 +11,6 @@ dist/
 .venv/
 venv/
 *.log
+
+# local pre-refactor backup (not committed)
+ccscience_sync.py.v0.3.0.bak
