@@ -6,6 +6,9 @@
 
 一个很小的桌面小工具：**不用装 Python、不用开终端**，下载、打开、点一下就好。
 
+需要按截图操作，可以看 [中文图文说明](docs/USER_GUIDE.zh-CN.md) 或
+[English quick guide](docs/USER_GUIDE.md)。
+
 ## 它能做什么
 
 Claude Science 默认只能用官方 Claude。装上本工具后，它会跟着你**在 CC.Switch 里选的模型**走：

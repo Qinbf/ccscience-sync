@@ -1,3 +1,4 @@
+import contextlib
 import json
 import http.client
 import http.server
@@ -1082,6 +1083,12 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         ccscience_sync._TIER_MODELS.clear()
         ccscience_sync._LAST_PROVIDER_STATE = ""
 
+    @contextlib.contextmanager
+    def _isolated_forwarder_settings(self):
+        with mock.patch.dict(os.environ, {"CCSCIENCE_TP_MODEL": ""}, clear=False):
+            with mock.patch.object(ccscience_sync, "_thirdparty_settings_env", return_value={}):
+                yield
+
     def _forwarder_json_roundtrip(self, provider, request_body, upstream_response):
         captured = {}
 
@@ -1111,16 +1118,17 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details", return_value=provider):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
-                    req = urllib.request.Request(
-                        f"http://127.0.0.1:{server.server_port}/v1/messages",
-                        data=json.dumps(request_body).encode(),
-                        method="POST",
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        got = json.loads(resp.read().decode())
+            with self._isolated_forwarder_settings():
+                with mock.patch.object(ccscience_sync, "thirdparty_provider_details", return_value=provider):
+                    with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                        req = urllib.request.Request(
+                            f"http://127.0.0.1:{server.server_port}/v1/messages",
+                            data=json.dumps(request_body).encode(),
+                            method="POST",
+                            headers={"Content-Type": "application/json"},
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            got = json.loads(resp.read().decode())
         finally:
             server.shutdown()
             server.server_close()
@@ -2024,24 +2032,25 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
-                                   return_value={"base_url": "https://api.deepseek.com/anthropic/v1",
-                                                 "key": "sk-test", "source": "test",
-                                                 "model": "deepseek-v4-pro"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
-                    req = urllib.request.Request(
-                        f"http://127.0.0.1:{server.server_port}/v1/messages",
-                        data=json.dumps({
-                            "model": "claude-opus-4-8",
-                            "max_tokens": 8,
-                            "stream": False,
-                            "messages": [{"role": "user", "content": [{"type": "text", "text": "say ok"}]}],
-                        }).encode(),
-                        method="POST",
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        got = json.loads(resp.read().decode())
+            with self._isolated_forwarder_settings():
+                with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+                                       return_value={"base_url": "https://api.deepseek.com/anthropic/v1",
+                                                     "key": "sk-test", "source": "test",
+                                                     "model": "deepseek-v4-pro"}):
+                    with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                        req = urllib.request.Request(
+                            f"http://127.0.0.1:{server.server_port}/v1/messages",
+                            data=json.dumps({
+                                "model": "claude-opus-4-8",
+                                "max_tokens": 8,
+                                "stream": False,
+                                "messages": [{"role": "user", "content": [{"type": "text", "text": "say ok"}]}],
+                            }).encode(),
+                            method="POST",
+                            headers={"Content-Type": "application/json"},
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            got = json.loads(resp.read().decode())
         finally:
             server.shutdown()
             server.server_close()

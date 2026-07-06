@@ -7,6 +7,9 @@ switch models freely — no reinstalling.
 
 A tiny desktop app. **No Python, no terminal.** Download it, open it, click one button.
 
+For screenshot-based steps, see the [English quick guide](docs/USER_GUIDE.md) or
+[中文图文说明](docs/USER_GUIDE.zh-CN.md).
+
 ## What it does
 
 Claude Science normally runs only the official Claude models. This app makes it follow
