@@ -2,139 +2,92 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**Use any model you picked in CC.Switch inside Claude Science.** Install once, then
-switch models freely — no reinstalling.
+**Use the model you selected in CC.Switch inside Claude Science.**
 
-A tiny desktop app. **No Python, no terminal.** Download it, open it, click one button.
+Install once. After that, switch models in CC.Switch and start a new Claude Science session. No reinstalling.
 
-For screenshot-based steps, see the [English quick guide](docs/USER_GUIDE.md) or
-[中文图文说明](docs/USER_GUIDE.zh-CN.md).
+## What It Supports
 
-## What it does
+- Official Claude models: Opus, Sonnet, Haiku, and more
+- Third-party models: DeepSeek, Kimi, GLM, MiniMax, and more
+- A local no-login Claude Science mode for users with third-party API keys but no Claude account
 
-Claude Science normally runs only the official Claude models. This app makes it follow
-**whatever you chose in CC.Switch** instead:
+## Install
 
-- **Official Claude** — Opus, Sonnet, Haiku.
-- **Third-party models** — DeepSeek, Kimi (Moonshot), GLM (Zhipu), MiniMax, and more.
-  The app quietly translates each provider's format for you, so they just work.
+Before installing:
 
-Pick a model in CC.Switch → open a new Claude Science session → it uses that model.
-**Install once; after that, switching models never needs a reinstall.**
+1. Open Claude Science at least once
+2. Pick your model in CC.Switch
 
-## Install (3 steps)
+Then download and open this app:
 
-First: open Claude Science once (then you can close it), and pick your model in CC.Switch.
+- macOS: [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
+- Windows: [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
 
-**macOS**
-1. Download [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip) and unzip it
-2. Open `ccscience-sync.app`
-3. Click **`①  Install / Update`** — done ✅
+Click **`Install / Update`**.
 
-> Blocked on first open? That's normal — this app is free and unsigned. On newer macOS:
-> `System Settings → Privacy & Security → Open Anyway`. On older macOS: right-click the
-> app → `Open`. More cases in [docs/INSTALL.md](docs/INSTALL.md).
+<img src="docs/images/user-guide-01-main.png" alt="ccscience-sync main window" width="720">
 
-**Windows**
-1. Download [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip) and unzip it
-2. Open `ccscience-sync.exe`
-3. Click **`①  Install / Update`** — done ✅
-
-> If Windows SmartScreen appears → `More info` → `Run anyway`.
-
-## Everyday use
-
-1. Switch models in **CC.Switch**
-2. Click **`Open Claude Science`** in this app
-3. The new session uses the model you just picked — no reinstall, nothing to change
-
-To confirm it's installed, click **`Check Status`** and look for:
+After installation, click **`Check Status`**. These lines mean it is ready:
 
 ```text
-helper: running (...)
-runtime patch: installed (...)
+helper: running
+runtime patch: installed
 ```
 
-You only click `Install / Update` **again** when Claude Science itself updates to a new
-version (Check Status then shows `runtime patch: not-installed`). Switching models never
-needs it.
+Only click **`Install / Update`** again after Claude Science itself updates. Switching models does not require reinstalling.
 
-## No Claude account? Use "Third-Party (No Login)"
+## With A Claude Account
 
-Only for people with **no Claude account** but who do have a third-party API key (e.g.
-DeepSeek, MiniMax). **With a Claude account, skip this.**
+1. Pick the model in CC.Switch
+2. Click **`Open Claude Science`**
+3. Start a new session in Claude Science
+
+If Claude Science asks you to sign in, sign in normally. Local links expire; click **`Open Claude Science`** again for a fresh one.
+
+## Without A Claude Account
+
+If you have no Claude account but do have a third-party API key:
 
 1. Pick a third-party model in CC.Switch
-2. Click **`Third-Party (No Login)`** in this app
-3. Claude Science opens ready to use — no account, no sign-in screen
+2. Click **`Third-Party (No Login)`**
+3. Your browser opens a local Claude Science page
 
-It runs a **separate, isolated** copy of Claude Science (its own folder and port — it never
-touches your real login) and routes requests through this app's own built-in local
-forwarder straight to your third-party API. Your key stays on your machine. Click
-`Uninstall` to stop it.
+<img src="docs/images/user-guide-03-web-dashboard.png" alt="third-party no-login page" width="720">
 
-## Common questions
+This runs in an isolated local sandbox and does not touch your real Claude login. Requests go through the local forwarder to the selected third-party API. Secrets are read from your local config or environment variables; do not write them into code or docs.
 
-**Claude Science asks me to log in.** The local link is one-time and can expire. Click
-**`Open Claude Science`** for a fresh one. It uses your real Claude account and does not
-bypass sign-in. No account? Use "Third-Party (No Login)" above.
+## Start Chatting
 
-**"Claude Science runtime not found."** Open Claude Science once, close it, then click
-`Install / Update` again.
+Open or create a project, then click **New** in the sidebar. The bottom of the composer shows the active model:
 
-**The model didn't change.** Start a **new** session — sessions already open keep the model
-they started with. Switching never needs a reinstall.
+<img src="docs/images/user-guide-04-composer.png" alt="composer and model picker" width="520">
 
-**The OS warns the app is unverified.** This release is unsigned, so macOS/Windows show a
-one-time warning — normal for a small open-source app. Allow it as shown above. It does not
-read or upload your keys.
+Type your prompt and send it. If a tool permission prompt appears, allow only tools you trust.
+
+## Troubleshooting
+
+**Model did not change?** Old sessions keep their original model. Start a new session after switching models.
+
+**Page does not open?** Click **`Check Status`** and make sure the helper, forwarder, and sandbox are running. If the link expired, click the entry button again.
+
+**Runtime not found?** Open Claude Science once manually, then click **`Install / Update`**.
+
+**`Agent Failed` / `invalid params`?** Make sure you are on the latest build, reopen **`Third-Party (No Login)`**, and test in a new session.
 
 ## Uninstall
 
 Open the app and click **`Uninstall`**.
 
-## Names (don't mix them up)
-
-- **CC.Switch (cc-switch)** — the app **you** use to switch models / set up a third-party
-  API. It decides which model Claude Code and Claude Science use. This is the only thing
-  ccscience-sync works with.
-- **Claude Science** — the app whose model this tool redirects.
-
-## Run from source (developers)
+## Run From Source
 
 ```sh
 git clone https://github.com/Qinbf/ccscience-sync.git
 cd ccscience-sync
-python3 ccscience_sync.py            # open the GUI
-python3 ccscience_sync.py install    # or via CLI
-python3 ccscience_sync.py status     # check status
-python3 ccscience_sync.py uninstall  # uninstall
+python3 ccscience_sync.py
 ```
 
 On Windows, replace `python3` with `py -3`.
-
-## Custom model map (optional)
-
-This tool maps the model name from CC.Switch to a Claude Science model ID. Defaults:
-
-| Source model contains | Claude Science model |
-| --- | --- |
-| `opus` | `claude-opus-4-8` |
-| `sonnet` | `claude-sonnet-5` |
-| `sonnet-4`, `4.6` | `claude-sonnet-4-6` |
-| `haiku` | `claude-haiku-4-5` |
-| `fable` | `claude-fable-5` |
-
-To customize, create `~/.ccscience-sync.json`:
-
-```json
-{
-  "model_map": {
-    "opus[1m]": "claude-opus-4-8",
-    "sonnet[1m]": "claude-sonnet-5"
-  }
-}
-```
 
 ## License
 

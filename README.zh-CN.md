@@ -2,131 +2,92 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**让 Claude Science 用上你在 CC.Switch 里选的任意模型。** 装一次，之后随便切，不用重装。
+**让 Claude Science 使用你在 CC.Switch 里选择的模型。**
 
-一个很小的桌面小工具：**不用装 Python、不用开终端**，下载、打开、点一下就好。
+安装一次即可。之后在 CC.Switch 里切模型，新开 Claude Science 会话就会自动使用新模型，不需要反复安装。
 
-需要按截图操作，可以看 [中文图文说明](docs/USER_GUIDE.zh-CN.md) 或
-[English quick guide](docs/USER_GUIDE.md)。
+## 支持什么
 
-## 它能做什么
+- 官方 Claude：Opus、Sonnet、Haiku 等
+- 第三方模型：DeepSeek、Kimi、GLM、MiniMax 等
+- 无 Claude 账号时，也可以用第三方 API 打开本地免登录版 Claude Science
 
-Claude Science 默认只能用官方 Claude。装上本工具后，它会跟着你**在 CC.Switch 里选的模型**走：
+## 安装
 
-- **官方 Claude** —— Opus、Sonnet、Haiku。
-- **第三方模型** —— DeepSeek、Kimi（Moonshot）、GLM（智谱）、MiniMax 等。
-  本工具会自动把每家服务商的接口格式转换好，让它们直接可用。
+先准备好两件事：
 
-在 CC.Switch 里选个模型 → 新开一个 Claude Science 会话 → 它就用那个模型。
-**装一次即可，之后切模型永远不用重装。**
+1. Claude Science 至少打开过一次
+2. CC.Switch 里已经选好要用的模型
 
-## 安装（三步）
+然后下载并打开本工具：
 
-开始前：Claude Science 至少打开过一次（然后可以关掉）；CC.Switch 里已经选好想用的模型。
+- macOS：[ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip)
+- Windows：[ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip)
 
-**macOS**
-1. 下载 [ccscience-sync-macos.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-macos.zip) 并解压
-2. 打开 `ccscience-sync.app`
-3. 点 **「① 一键安装 / 更新」** —— 完成 ✅
+打开后点击 **「① 一键安装 / 更新」**。
 
-> 首次打开被系统拦？属正常（本工具免费、未做付费签名）：较新的 macOS 打开
-> `系统设置 › 隐私与安全性`，往下找到本应用点 `仍要打开`；旧版可右键 App → `打开`。
-> 更多情况见 [docs/INSTALL.md](docs/INSTALL.md)。
+<img src="docs/images/user-guide-01-main.png" alt="ccscience-sync 主界面" width="720">
 
-**Windows**
-1. 下载 [ccscience-sync-windows.zip](https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-sync-windows.zip) 并解压
-2. 打开 `ccscience-sync.exe`
-3. 点 **「① 一键安装 / 更新」** —— 完成 ✅
-
-> 出现 SmartScreen 提示 → 点 `更多信息` → `仍要运行`。
-
-## 平时怎么用
-
-1. 在 **CC.Switch** 里切换模型
-2. 在本工具里点 **「打开 Claude Science」**
-3. 新会话自动用上你刚选的模型 —— 不用重装、不用改任何设置
-
-想确认装好了没：点 **「检查状态」**，看到下面两行就 OK：
+安装完成后，点击 **「检查状态」**。看到下面两项就说明可以用了：
 
 ```text
-后台服务：运行中 (...)
-运行时补丁：已安装 (...)
+后台服务：运行中
+运行时补丁：已安装
 ```
 
-**只有一种情况需要再点一次「一键安装 / 更新」**：Claude Science 自己升级到了新版本
-（这时「检查状态」会显示 `运行时补丁：未安装`）。平时切模型完全不用管。
+只有 Claude Science 自己升级后，才需要再次点击 **「① 一键安装 / 更新」**。平时切模型不用重装。
 
-## 没有 Claude 账号？用「第三方免登录」
+## 有 Claude 账号时
 
-只有当你**没有任何 Claude 账号**、但有第三方模型 API（如 DeepSeek、MiniMax）时才需要。
-**有 Claude 账号就跳过本节。**
+1. 在 CC.Switch 里切到目标模型
+2. 点击 **「打开 Claude Science」**
+3. 在 Claude Science 里新建会话
 
-1. 在 CC.Switch 里选一个第三方模型
-2. 在本工具里点 **「第三方免登录」**
-3. Claude Science 直接可用 —— 不需要账号，也没有登录界面
+如果页面要求登录，正常登录即可。打开链接会过期，过期后回到本工具重新点击 **「打开 Claude Science」**。
 
-它会启动一个**独立、隔离**的 Claude Science（自己的目录和端口，**绝不触碰**你真实的登录），
-把请求经过本工具**内置的本地转发器**直连你自己的第三方 API。你的 Key 始终留在本机。
-想停掉，点 `卸载` 即可。
+## 没有 Claude 账号时
+
+如果你没有 Claude 账号，但有第三方模型 API：
+
+1. 在 CC.Switch 里选择第三方模型
+2. 点击 **「第三方免登录」**
+3. 浏览器会打开本地 Claude Science 页面
+
+<img src="docs/images/user-guide-03-web-dashboard.png" alt="第三方免登录页面" width="720">
+
+这个页面是隔离的本地沙箱，不会使用你的真实 Claude 登录态。请求会通过本机转发器发到你选择的第三方 API。密钥只从你的本地配置或环境变量读取，不要写进代码或文档。
+
+## 开始对话
+
+打开或新建项目，点击左侧 **New**。输入框底部会显示当前模型：
+
+<img src="docs/images/user-guide-04-composer.png" alt="输入框与模型选择" width="520">
+
+输入问题并发送即可。第一次使用工具时，如果页面弹出授权提示，只允许你信任的工具。
 
 ## 常见问题
 
-**Claude Science 要我登录？** 本地链接是一次性的、会过期。点 **「打开 Claude Science」**
-生成新链接即可。用的是你真实的 Claude 账号，不绕过登录。完全没有账号，请改用上面的「第三方免登录」。
+**模型没变？** 旧会话会保留创建时的模型。切换模型后，请新建会话测试。
 
-**提示找不到 Claude Science runtime？** 先打开一次 Claude Science 再关掉，然后重新点
-「一键安装 / 更新」。
+**页面打不开？** 点击 **「检查状态」**，确认后台服务、第三方转发器和免登录沙箱都在运行。旧链接过期时，重新点击入口按钮。
 
-**模型没有立刻变化？** 请**新建**一个会话；已经开着的旧会话会继续用创建时的模型。切模型不用重装。
+**提示找不到 Claude Science runtime？** 先手动打开一次 Claude Science，再回到本工具点击 **「① 一键安装 / 更新」**。
 
-**系统提示应用有风险 / 无法验证？** 当前版本没有做商业代码签名，macOS / Windows 会有安全警告，
-这是小型开源工具的常见情况，按上面提示放行即可。它不会读取或上传你的任何密钥。
+**出现 `Agent Failed` / `invalid params`？** 确认使用最新版，重新点击 **「第三方免登录」** 打开新页面，再新建会话测试。
 
 ## 卸载
 
-打开本工具，点 **「卸载」**。
+打开本工具，点击 **「卸载」**。
 
-## 名词说明（避免混淆）
-
-- **CC.Switch（cc-switch）** —— 你**用来切模型 / 配第三方 API** 的那个软件，决定
-  Claude Code / Claude Science 用哪个模型。**这是本工具唯一需要配合的对象。**
-- **Claude Science** —— 被本工具改变模型来源的那个应用。
-
-## 从源码运行（开发者）
+## 从源码运行
 
 ```sh
 git clone https://github.com/Qinbf/ccscience-sync.git
 cd ccscience-sync
-python3 ccscience_sync.py            # 打开图形界面
-python3 ccscience_sync.py install    # 或用命令行安装
-python3 ccscience_sync.py status     # 查看状态
-python3 ccscience_sync.py uninstall  # 卸载
+python3 ccscience_sync.py
 ```
 
 Windows 把 `python3` 换成 `py -3`。
-
-## 自定义模型映射（可选）
-
-本工具会把 CC.Switch 里的模型名映射成 Claude Science 的模型 ID。默认映射：
-
-| 源模型包含 | Claude Science 模型 |
-| --- | --- |
-| `opus` | `claude-opus-4-8` |
-| `sonnet` | `claude-sonnet-5` |
-| `sonnet-4`、`4.6` | `claude-sonnet-4-6` |
-| `haiku` | `claude-haiku-4-5` |
-| `fable` | `claude-fable-5` |
-
-想自定义，创建 `~/.ccscience-sync.json`：
-
-```json
-{
-  "model_map": {
-    "opus[1m]": "claude-opus-4-8",
-    "sonnet[1m]": "claude-sonnet-5"
-  }
-}
-```
 
 ## 许可证
 
