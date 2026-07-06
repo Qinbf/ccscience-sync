@@ -32,11 +32,11 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/Qinbf/ccscience-sync"
-Issues = "https://github.com/Qinbf/ccscience-sync/issues"
+Homepage = "https://github.com/Qinbf/ccscience"
+Issues = "https://github.com/Qinbf/ccscience/issues"
 
 [project.scripts]
-ccscience = "ccscience_sync:main"
+ccscience = "ccscience:main"
 
 [tool.setuptools]
-py-modules = ["ccscience_sync"]
+py-modules = ["ccscience"]

@@ -7,7 +7,7 @@
 macOS 打开 `ccscience.app`，Windows 打开 `ccscience.exe`。源码运行：
 
 ```sh
-python3 ccscience_sync.py
+python3 ccscience.py
 ```
 
 主界面如下：

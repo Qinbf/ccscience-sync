@@ -4,8 +4,8 @@
 
 Download the latest release:
 
-- macOS: <https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-macos.zip>
-- Windows: <https://github.com/Qinbf/ccscience-sync/releases/latest/download/ccscience-windows.zip>
+- macOS: <https://github.com/Qinbf/ccscience/releases/latest/download/ccscience-macos.zip>
+- Windows: <https://github.com/Qinbf/ccscience/releases/latest/download/ccscience-windows.zip>
 
 Unzip the file, open the app, then click `Install / Update`.
 
@@ -77,22 +77,22 @@ model, key source variable, and forwarder health without printing the secret.
 ## From Source
 
 ```sh
-git clone https://github.com/Qinbf/ccscience-sync.git ccscience
+git clone https://github.com/Qinbf/ccscience.git ccscience
 cd ccscience
 ```
 
 macOS:
 
 ```sh
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
+python3 ccscience.py install
+python3 ccscience.py status
 ```
 
 Windows:
 
 ```powershell
-py -3 .\ccscience_sync.py install
-py -3 .\ccscience_sync.py status
+py -3 .\ccscience.py install
+py -3 .\ccscience.py status
 ```
 
 ## What install does

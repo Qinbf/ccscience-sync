@@ -14,7 +14,7 @@ gh repo create ccscience --public --source=. --remote=origin --push
 If the repository already exists:
 
 ```sh
-git remote add origin https://github.com/Qinbf/ccscience-sync.git
+git remote add origin https://github.com/Qinbf/ccscience.git
 git branch -M main
 git push -u origin main
 ```

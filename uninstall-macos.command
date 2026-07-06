@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-python3 ccscience_sync.py uninstall
+python3 ccscience.py uninstall
 
 echo
 echo "Done. You can close this window."

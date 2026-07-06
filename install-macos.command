@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-python3 ccscience_sync.py install
-python3 ccscience_sync.py status
+python3 ccscience.py install
+python3 ccscience.py status
 
 echo
 echo "Done. You can close this window."

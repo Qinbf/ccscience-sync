@@ -7,7 +7,7 @@ This guide covers the common path only. Open Claude Science once first, then cho
 Open `ccscience.app` on macOS or `ccscience.exe` on Windows. From source:
 
 ```sh
-python3 ccscience_sync.py
+python3 ccscience.py
 ```
 
 Main window:

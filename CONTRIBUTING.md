@@ -6,7 +6,7 @@ Thanks for helping improve ccscience.
 
 ```sh
 python3 -m unittest discover -s tests
-python3 -m py_compile ccscience_sync.py
+python3 -m py_compile ccscience.py
 ```
 
 ## Pull Requests

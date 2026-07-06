@@ -11,35 +11,35 @@ import urllib.request
 import unittest
 from unittest import mock
 
-import ccscience_sync
+import ccscience
 
 
 class ModelMappingTests(unittest.TestCase):
     def test_maps_common_models(self):
-        self.assertEqual(ccscience_sync.map_model("opus[1m]", {}), "claude-opus-4-8")
-        self.assertEqual(ccscience_sync.map_model("sonnet", {}), "claude-sonnet-5")
-        self.assertEqual(ccscience_sync.map_model("sonnet-4.6", {}), "claude-sonnet-4-6")
-        self.assertEqual(ccscience_sync.map_model("haiku", {}), "claude-haiku-4-5")
+        self.assertEqual(ccscience.map_model("opus[1m]", {}), "claude-opus-4-8")
+        self.assertEqual(ccscience.map_model("sonnet", {}), "claude-sonnet-5")
+        self.assertEqual(ccscience.map_model("sonnet-4.6", {}), "claude-sonnet-4-6")
+        self.assertEqual(ccscience.map_model("haiku", {}), "claude-haiku-4-5")
 
     def test_respects_model_map_override(self):
         config = {"model_map": {"opus[1m]": "custom-opus"}}
-        self.assertEqual(ccscience_sync.map_model("opus[1m]", config), "custom-opus")
+        self.assertEqual(ccscience.map_model("opus[1m]", config), "custom-opus")
 
     def test_maps_effort(self):
-        self.assertEqual(ccscience_sync.map_effort("max"), "high")
-        self.assertEqual(ccscience_sync.map_effort("med"), "medium")
-        self.assertIsNone(ccscience_sync.map_effort("unknown"))
+        self.assertEqual(ccscience.map_effort("max"), "high")
+        self.assertEqual(ccscience.map_effort("med"), "medium")
+        self.assertIsNone(ccscience.map_effort("unknown"))
 
 
 class LocalizationTests(unittest.TestCase):
     def test_detects_chinese_locales(self):
-        self.assertEqual(ccscience_sync.detect_language("zh_CN.UTF-8"), "zh")
-        self.assertEqual(ccscience_sync.detect_language("zh-Hans-CN"), "zh")
-        self.assertEqual(ccscience_sync.detect_language("zh_TW"), "zh")
+        self.assertEqual(ccscience.detect_language("zh_CN.UTF-8"), "zh")
+        self.assertEqual(ccscience.detect_language("zh-Hans-CN"), "zh")
+        self.assertEqual(ccscience.detect_language("zh_TW"), "zh")
 
     def test_defaults_non_chinese_to_english(self):
-        self.assertEqual(ccscience_sync.detect_language("en_US.UTF-8"), "en")
-        self.assertEqual(ccscience_sync.detect_language("ja_JP.UTF-8"), "en")
+        self.assertEqual(ccscience.detect_language("en_US.UTF-8"), "en")
+        self.assertEqual(ccscience.detect_language("ja_JP.UTF-8"), "en")
 
     def test_localizes_gui_status_output(self):
         text = (
@@ -48,7 +48,7 @@ class LocalizationTests(unittest.TestCase):
             "thirdparty forwarder: not-running\n"
             "runtime patch: installed (/tmp/index.html)"
         )
-        localized = ccscience_sync.localize_cli_output(text, "zh")
+        localized = ccscience.localize_cli_output(text, "zh")
         self.assertIn("后台服务：运行中", localized)
         self.assertIn("第三方来源：csswitch-profile", localized)
         self.assertIn("第三方转发器：未运行", localized)
@@ -57,60 +57,60 @@ class LocalizationTests(unittest.TestCase):
 
 class ClaudeScienceUrlTests(unittest.TestCase):
     def test_parses_fresh_url_from_cli_output(self):
-        completed = ccscience_sync.subprocess.CompletedProcess(
+        completed = ccscience.subprocess.CompletedProcess(
             ["claude-science", "url"],
             0,
             "http://localhost:8765/?nonce=abc123\n(single-use, expires in 3 min)\n",
             "",
         )
         with mock.patch.object(
-            ccscience_sync,
+            ccscience,
             "claude_science_commands",
             return_value=[pathlib.Path("/tmp/claude-science")],
         ):
-            with mock.patch.object(ccscience_sync, "run", return_value=completed):
-                self.assertEqual(ccscience_sync.fresh_claude_science_url(), "http://localhost:8765/?nonce=abc123")
+            with mock.patch.object(ccscience, "run", return_value=completed):
+                self.assertEqual(ccscience.fresh_claude_science_url(), "http://localhost:8765/?nonce=abc123")
 
     def test_reports_when_cli_has_no_url(self):
-        completed = ccscience_sync.subprocess.CompletedProcess(
+        completed = ccscience.subprocess.CompletedProcess(
             ["claude-science", "url"],
             1,
             "",
             "not running",
         )
         with mock.patch.object(
-            ccscience_sync,
+            ccscience,
             "claude_science_commands",
             return_value=[pathlib.Path("/tmp/claude-science")],
         ):
-            with mock.patch.object(ccscience_sync, "run", return_value=completed):
+            with mock.patch.object(ccscience, "run", return_value=completed):
                 with self.assertRaises(SystemExit) as raised:
-                    ccscience_sync.fresh_claude_science_url("zh")
-        self.assertEqual(str(raised.exception), ccscience_sync.tr("zh", "science_url_missing"))
+                    ccscience.fresh_claude_science_url("zh")
+        self.assertEqual(str(raised.exception), ccscience.tr("zh", "science_url_missing"))
 
     def test_open_science_starts_forwarder_for_direct_provider(self):
-        env = {"ANTHROPIC_BASE_URL": ccscience_sync.thirdparty_forwarder_base_url()}
-        with mock.patch.object(ccscience_sync, "science_launch_environment",
+        env = {"ANTHROPIC_BASE_URL": ccscience.thirdparty_forwarder_base_url()}
+        with mock.patch.object(ccscience, "science_launch_environment",
                                return_value=(env, {"enabled": True})):
-            with mock.patch.object(ccscience_sync, "ensure_thirdparty_forwarder") as ensure:
-                with mock.patch.object(ccscience_sync, "fresh_claude_science_url",
+            with mock.patch.object(ccscience, "ensure_thirdparty_forwarder") as ensure:
+                with mock.patch.object(ccscience, "fresh_claude_science_url",
                                        return_value="http://127.0.0.1:8990/?nonce=x"):
-                    with mock.patch.object(ccscience_sync.webbrowser, "open"):
-                        url, bridge = ccscience_sync.open_claude_science("en")
+                    with mock.patch.object(ccscience.webbrowser, "open"):
+                        url, bridge = ccscience.open_claude_science("en")
         ensure.assert_called_once_with()
         self.assertEqual(url, "http://127.0.0.1:8990/?nonce=x")
         self.assertTrue(bridge["enabled"])
 
     def test_cli_open_science_starts_forwarder_for_direct_provider(self):
-        env = {"ANTHROPIC_BASE_URL": ccscience_sync.thirdparty_forwarder_base_url()}
-        with mock.patch.object(ccscience_sync, "science_launch_environment",
+        env = {"ANTHROPIC_BASE_URL": ccscience.thirdparty_forwarder_base_url()}
+        with mock.patch.object(ccscience, "science_launch_environment",
                                return_value=(env, {"enabled": True})):
-            with mock.patch.object(ccscience_sync, "ensure_thirdparty_forwarder") as ensure:
-                with mock.patch.object(ccscience_sync, "fresh_claude_science_url",
+            with mock.patch.object(ccscience, "ensure_thirdparty_forwarder") as ensure:
+                with mock.patch.object(ccscience, "fresh_claude_science_url",
                                        return_value="http://127.0.0.1:8990/?nonce=x"):
-                    code, out = ccscience_sync.capture_output(
-                        lambda: ccscience_sync.cmd_open_science(
-                            ccscience_sync.argparse.Namespace(print_only=True)
+                    code, out = ccscience.capture_output(
+                        lambda: ccscience.cmd_open_science(
+                            ccscience.argparse.Namespace(print_only=True)
                         )
                     )
 
@@ -126,7 +126,7 @@ class CSSwitchBridgeTests(unittest.TestCase):
         path = root / ".csswitch" / "config.json"
         path.parent.mkdir(parents=True)
         path.write_text(
-            ccscience_sync.json.dumps(
+            ccscience.json.dumps(
                 {
                     "schema_version": 2,
                     "mode": "proxy",
@@ -156,8 +156,8 @@ class CSSwitchBridgeTests(unittest.TestCase):
             (root / ".claude" / "settings.json").write_text('{"model":"opus[1m]"}', encoding="utf-8")
             self.write_csswitch_config(root)
 
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                payload = ccscience_sync.current_model_payload()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                payload = ccscience.current_model_payload()
 
         self.assertEqual(payload["source"], "claude-settings")
         self.assertEqual(payload["model"], "claude-opus-4-8")
@@ -169,8 +169,8 @@ class CSSwitchBridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self.write_csswitch_config(root)  # no ~/.claude/settings.json
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                payload = ccscience_sync.current_model_payload()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                payload = ccscience.current_model_payload()
         self.assertEqual(payload["source"], "csswitch-profile")
         self.assertEqual(payload["model"], "glm-5.2")
 
@@ -191,8 +191,8 @@ class CSSwitchBridgeTests(unittest.TestCase):
                 },
             }), encoding="utf-8")
             self.write_csswitch_config(root, model="MiniMax-M3[1M]", name="MiniMax", template_id="minimax")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                payload = ccscience_sync.current_model_payload()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                payload = ccscience.current_model_payload()
         self.assertEqual(payload["upstream_mode"], "direct")
         self.assertEqual(payload["upstream_base_url"], "https://api.minimaxi.com/anthropic")
         self.assertEqual(payload["upstream_key_env"], "ANTHROPIC_AUTH_TOKEN")
@@ -212,11 +212,11 @@ class CSSwitchBridgeTests(unittest.TestCase):
                 },
             }), encoding="utf-8")
             self.write_csswitch_config(root, model="MiniMax-M3", name="MiniMax", template_id="minimax")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.object(
-                ccscience_sync, "csswitch_proxy_health", return_value=True
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.object(
+                ccscience, "csswitch_proxy_health", return_value=True
             ):
-                env, bridge = ccscience_sync.science_launch_environment()
-        self.assertEqual(env["ANTHROPIC_BASE_URL"], ccscience_sync.thirdparty_forwarder_base_url())
+                env, bridge = ccscience.science_launch_environment()
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], ccscience.thirdparty_forwarder_base_url())
         self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "ccscience-forwarder")
         self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "MiniMax-M3")
 
@@ -240,13 +240,13 @@ class CSSwitchBridgeTests(unittest.TestCase):
             csswitch_path = root / ".csswitch" / "config.json"
             os.utime(settings_path, (1000, 1000))
             os.utime(csswitch_path, (2000, 2000))
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-active"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-active"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
-                payload = ccscience_sync.current_model_payload()
-                env, _bridge = ccscience_sync.science_launch_environment()
-                target = ccscience_sync.thirdparty_target()
+                provider = ccscience.thirdparty_provider_details()
+                payload = ccscience.current_model_payload()
+                env, _bridge = ccscience.science_launch_environment()
+                target = ccscience.thirdparty_target()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.deepseek.com/anthropic")
@@ -257,7 +257,7 @@ class CSSwitchBridgeTests(unittest.TestCase):
         self.assertEqual(payload["upstream_provider_model"], "deepseek-v4-pro")
         self.assertEqual(payload["upstream_source"], "csswitch-profile")
         self.assertEqual(payload["upstream_key_env"], "DEEPSEEK_API_KEY")
-        self.assertEqual(env["ANTHROPIC_BASE_URL"], ccscience_sync.thirdparty_forwarder_base_url())
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], ccscience.thirdparty_forwarder_base_url())
         self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "ccscience-forwarder")
         self.assertEqual(env["ANTHROPIC_MODEL"], "deepseek-v4-pro")
         self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "deepseek-v4-pro")
@@ -286,11 +286,11 @@ class CSSwitchBridgeTests(unittest.TestCase):
             csswitch_path = root / ".csswitch" / "config.json"
             os.utime(csswitch_path, (1000, 1000))
             os.utime(settings_path, (2000, 2000))
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-stale"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-stale"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
-                payload = ccscience_sync.current_model_payload()
+                provider = ccscience.thirdparty_provider_details()
+                payload = ccscience.current_model_payload()
 
         self.assertEqual(provider["source"], "claude-settings")
         self.assertEqual(provider["base_url"], "https://api.minimaxi.com/anthropic")
@@ -325,9 +325,9 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
-                target = ccscience_sync.thirdparty_target()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
+                target = ccscience.thirdparty_target()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.moonshot.ai/v1")
@@ -357,8 +357,8 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.moonshot.ai/v1")
@@ -385,11 +385,11 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 },
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"MOONSHOT_API_KEY": "sk-kimi-real"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"MOONSHOT_API_KEY": "sk-kimi-real"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
-                bridge = ccscience_sync.csswitch_bridge_payload(check_health=False)
+                provider = ccscience.thirdparty_provider_details()
+                bridge = ccscience.csswitch_bridge_payload(check_health=False)
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.moonshot.ai/v1")
@@ -415,11 +415,11 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "env": {"MINIMAX_API_KEY": "${MINIMAX_API_KEY}"},
                 },
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"MINIMAX_API_KEY": "sk-minimax-real"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"MINIMAX_API_KEY": "sk-minimax-real"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
-                bridge = ccscience_sync.csswitch_bridge_payload(check_health=False)
+                provider = ccscience.thirdparty_provider_details()
+                bridge = ccscience.csswitch_bridge_payload(check_health=False)
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.minimax.io/anthropic")
@@ -450,13 +450,13 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {
                     "MOONSHOT_BASE_URL": "https://api.moonshot.ai/v1",
                     "MOONSHOT_API_KEY": "sk-kimi-real",
                 }
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.moonshot.ai/v1")
@@ -470,31 +470,31 @@ class CSSwitchBridgeTests(unittest.TestCase):
             (root / ".claude").mkdir()
             (root / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
             self.write_csswitch_config(root, model="deepseek-v4-pro", name="DeepSeek", template_id="deepseek")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-secret"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek-secret"}
             ), mock.patch.object(
-                ccscience_sync, "_thirdparty_forwarder_health",
-                return_value={"forwarder_revision": ccscience_sync.THIRDPARTY_FWD_REVISION, "pid": 1234}
+                ccscience, "_thirdparty_forwarder_health",
+                return_value={"forwarder_revision": ccscience.THIRDPARTY_FWD_REVISION, "pid": 1234}
             ), mock.patch.object(
-                ccscience_sync, "sandbox_daemon_status", return_value={"running": False}
+                ccscience, "sandbox_daemon_status", return_value={"running": False}
             ), mock.patch.object(
-                ccscience_sync, "sandbox_has_valid_token", return_value=False
+                ccscience, "sandbox_has_valid_token", return_value=False
             ), mock.patch.object(
-                ccscience_sync, "helper_status", return_value="not-running"
+                ccscience, "helper_status", return_value="not-running"
             ), mock.patch.object(
-                ccscience_sync, "autostart_status", return_value="not-installed"
+                ccscience, "autostart_status", return_value="not-installed"
             ), mock.patch.object(
-                ccscience_sync, "runtime_indexes", return_value=[]
+                ccscience, "runtime_indexes", return_value=[]
             ):
-                code, out = ccscience_sync.capture_output(
-                    lambda: ccscience_sync.cmd_status(ccscience_sync.argparse.Namespace(port=ccscience_sync.DEFAULT_PORT))
+                code, out = ccscience.capture_output(
+                    lambda: ccscience.cmd_status(ccscience.argparse.Namespace(port=ccscience.DEFAULT_PORT))
                 )
 
         self.assertEqual(code, 0)
         self.assertIn("thirdparty provider: csswitch-profile (https://api.deepseek.com/anthropic)", out)
         self.assertIn("thirdparty model: deepseek-v4-pro", out)
         self.assertIn("thirdparty key: DEEPSEEK_API_KEY", out)
-        self.assertIn(f"thirdparty forwarder: running (rev {ccscience_sync.THIRDPARTY_FWD_REVISION}, pid 1234)", out)
+        self.assertIn(f"thirdparty forwarder: running (rev {ccscience.THIRDPARTY_FWD_REVISION}, pid 1234)", out)
         self.assertNotIn("sk-deepseek-secret", out)
 
     def test_claude_settings_openai_env_is_direct_provider(self):
@@ -509,9 +509,9 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "OPENAI_MODEL": "kimi-k2.6",
                 },
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
-                payload = ccscience_sync.current_model_payload()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
+                payload = ccscience.current_model_payload()
 
         self.assertEqual(provider["source"], "claude-settings")
         self.assertEqual(provider["base_url"], "https://api.moonshot.ai/v1")
@@ -532,9 +532,9 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M3[1M]",
                 },
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
-                got = ccscience_sync._provider_model_for_request(
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
+                got = ccscience._provider_model_for_request(
                     "claude-opus-4-8", provider["base_url"], provider.get("model", ""))
 
         self.assertEqual(provider["source"], "claude-settings")
@@ -553,10 +553,10 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "OPENAI_BASE_URL": "https://api.moonshot.ai/v1",
                 },
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"MOONSHOT_API_KEY": "sk-kimi-shell"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"MOONSHOT_API_KEY": "sk-kimi-shell"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertEqual(provider["source"], "claude-settings")
         self.assertEqual(provider["key"], "sk-kimi-shell")
@@ -583,10 +583,10 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"MINIMAX_API_KEY": "sk-minimax-real"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"MINIMAX_API_KEY": "sk-minimax-real"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.minimax.io/anthropic")
@@ -614,10 +614,10 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.dict(
-                ccscience_sync.os.environ, {"MINIMAXI_API_KEY": "sk-minimaxi-real"}
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.dict(
+                ccscience.os.environ, {"MINIMAXI_API_KEY": "sk-minimaxi-real"}
             ):
-                provider = ccscience_sync.thirdparty_provider_details()
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://api.minimaxi.com/anthropic")
@@ -644,9 +644,9 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "api_key": "sk-custom-relay",
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
-                target = ccscience_sync.thirdparty_target()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
+                target = ccscience.thirdparty_target()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://relay.example.com/v1")
@@ -677,9 +677,9 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     },
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
-                target = ccscience_sync.thirdparty_target()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
+                target = ccscience.thirdparty_target()
 
         self.assertEqual(provider["source"], "csswitch-profile")
         self.assertEqual(provider["base_url"], "https://relay.example.com/anthropic")
@@ -708,8 +708,8 @@ class CSSwitchBridgeTests(unittest.TestCase):
                     "api_key": "hidden",
                 }],
             }), encoding="utf-8")
-            with mock.patch.object(ccscience_sync, "home", return_value=root):
-                provider = ccscience_sync.thirdparty_provider_details()
+            with mock.patch.object(ccscience, "home", return_value=root):
+                provider = ccscience.thirdparty_provider_details()
 
         self.assertIsNone(provider)
 
@@ -717,10 +717,10 @@ class CSSwitchBridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self.write_csswitch_config(root)
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.object(
-                ccscience_sync, "csswitch_proxy_health", return_value=True
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.object(
+                ccscience, "csswitch_proxy_health", return_value=True
             ):
-                env, bridge = ccscience_sync.science_launch_environment()
+                env, bridge = ccscience.science_launch_environment()
 
         self.assertTrue(bridge["proxy_running"])
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18991/secret123")
@@ -729,10 +729,10 @@ class CSSwitchBridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self.write_csswitch_config(root)
-            with mock.patch.object(ccscience_sync, "home", return_value=root), mock.patch.object(
-                ccscience_sync, "csswitch_proxy_health", return_value=False
+            with mock.patch.object(ccscience, "home", return_value=root), mock.patch.object(
+                ccscience, "csswitch_proxy_health", return_value=False
             ):
-                env, bridge = ccscience_sync.science_launch_environment()
+                env, bridge = ccscience.science_launch_environment()
 
         self.assertIsNone(env)
         self.assertFalse(bridge["proxy_running"])
@@ -749,16 +749,16 @@ class RuntimePatchTests(unittest.TestCase):
             path = pathlib.Path(tmp) / "index.html"
             path.write_text(html, encoding="utf-8")
 
-            self.assertEqual(ccscience_sync.patch_index(path, 19783), "installed")
+            self.assertEqual(ccscience.patch_index(path, 19783), "installed")
             patched = path.read_text(encoding="utf-8")
-            self.assertIn(ccscience_sync.MARKER_START, patched)
+            self.assertIn(ccscience.MARKER_START, patched)
             self.assertIn("http://127.0.0.1:19783/model", patched)
 
-            self.assertEqual(ccscience_sync.unpatch_index(path), "removed")
-            self.assertNotIn(ccscience_sync.MARKER_START, path.read_text(encoding="utf-8"))
+            self.assertEqual(ccscience.unpatch_index(path), "removed")
+            self.assertNotIn(ccscience.MARKER_START, path.read_text(encoding="utf-8"))
 
     def test_injection_refreshes_before_request(self):
-        script = ccscience_sync.injection_script(19783)
+        script = ccscience.injection_script(19783)
         self.assertIn("originalFetch.call(window, endpoint", script)
         self.assertIn("patchRequest(input, init)", script)
         self.assertIn('window.addEventListener("focus", scheduleSync)', script)
@@ -768,10 +768,10 @@ class RuntimePatchTests(unittest.TestCase):
 class CryptoTests(unittest.TestCase):
     def test_aes256_gcm_nist_vectors(self):
         # NIST GCM test case 13: all-zero 256-bit key/IV, empty plaintext/AAD
-        _, tag = ccscience_sync.aes_gcm_encrypt(bytes(32), bytes(12), b"", b"")
+        _, tag = ccscience.aes_gcm_encrypt(bytes(32), bytes(12), b"", b"")
         self.assertEqual(tag.hex(), "530f8afbc74536b9a963b4f1c4cb738b")
         # NIST GCM test case 14: one zero block of plaintext
-        ct, tag = ccscience_sync.aes_gcm_encrypt(bytes(32), bytes(12), bytes(16), b"")
+        ct, tag = ccscience.aes_gcm_encrypt(bytes(32), bytes(12), bytes(16), b"")
         self.assertEqual(ct.hex(), "cea7403d4d606b6e074ec5d3baf39d18")
         self.assertEqual(tag.hex(), "d0d1c8a799996bf0265b98b5d48ab919")
 
@@ -780,7 +780,7 @@ class CryptoTests(unittest.TestCase):
         ikm = bytes.fromhex("0b" * 22)
         salt = bytes.fromhex("000102030405060708090a0b0c")
         info = bytes.fromhex("f0f1f2f3f4f5f6f7f8f9")
-        okm = ccscience_sync.hkdf_sha256(ikm, salt, info, 42)
+        okm = ccscience.hkdf_sha256(ikm, salt, info, 42)
         self.assertEqual(
             okm.hex(),
             "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865",
@@ -790,21 +790,21 @@ class CryptoTests(unittest.TestCase):
         key = bytes(range(32))
         iv = bytes(range(12))
         pt = b"the quick brown fox jumps"
-        ct, tag = ccscience_sync.aes_gcm_encrypt(key, iv, pt, b"v2:oauth")
-        self.assertEqual(ccscience_sync.aes_gcm_decrypt(key, iv, ct, tag, b"v2:oauth"), pt)
+        ct, tag = ccscience.aes_gcm_encrypt(key, iv, pt, b"v2:oauth")
+        self.assertEqual(ccscience.aes_gcm_decrypt(key, iv, ct, tag, b"v2:oauth"), pt)
         with self.assertRaises(ValueError):
-            ccscience_sync.aes_gcm_decrypt(key, iv, ct, tag, b"wrong-aad")
+            ccscience.aes_gcm_decrypt(key, iv, ct, tag, b"wrong-aad")
         bad = bytearray(ct)
         bad[0] ^= 1
         with self.assertRaises(ValueError):
-            ccscience_sync.aes_gcm_decrypt(key, iv, bytes(bad), tag, b"v2:oauth")
+            ccscience.aes_gcm_decrypt(key, iv, bytes(bad), tag, b"v2:oauth")
 
     def test_token_v2_roundtrip(self):
-        key_b64 = ccscience_sync.base64.b64encode(bytes(range(32))).decode()
-        body = ccscience_sync.encrypt_token_v2('{"email":"virtual@localhost.invalid"}', key_b64)
+        key_b64 = ccscience.base64.b64encode(bytes(range(32))).decode()
+        body = ccscience.encrypt_token_v2('{"email":"virtual@localhost.invalid"}', key_b64)
         self.assertTrue(body.startswith("v2:"))
         self.assertEqual(
-            ccscience_sync.json.loads(ccscience_sync.decrypt_token_v2(body, key_b64))["email"],
+            ccscience.json.loads(ccscience.decrypt_token_v2(body, key_b64))["email"],
             "virtual@localhost.invalid",
         )
 
@@ -818,22 +818,22 @@ class VirtualOAuthForgeTests(unittest.TestCase):
     def test_forge_writes_valid_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             auth = self._sandbox(tmp)
-            info = ccscience_sync.forge_virtual_oauth(auth)
-            self.assertEqual(info["email"], ccscience_sync.VIRTUAL_EMAIL)
+            info = ccscience.forge_virtual_oauth(auth)
+            self.assertEqual(info["email"], ccscience.VIRTUAL_EMAIL)
             self.assertTrue((auth / "encryption.key").is_file())
             self.assertTrue((auth / "active-org.json").is_file())
             encs = list((auth / ".oauth-tokens").glob("*.enc"))
             self.assertEqual(len(encs), 1)
-            self.assertTrue(ccscience_sync.sandbox_has_valid_token(auth))
-            org = ccscience_sync.json.loads((auth / "active-org.json").read_text())
+            self.assertTrue(ccscience.sandbox_has_valid_token(auth))
+            org = ccscience.json.loads((auth / "active-org.json").read_text())
             self.assertEqual(org["org_uuid"], info["org_uuid"])
 
     def test_forge_keeps_single_enc_and_reuses_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             auth = self._sandbox(tmp)
-            first = ccscience_sync.forge_virtual_oauth(auth)
+            first = ccscience.forge_virtual_oauth(auth)
             key1 = (auth / "encryption.key").read_text()
-            second = ccscience_sync.forge_virtual_oauth(auth)
+            second = ccscience.forge_virtual_oauth(auth)
             key2 = (auth / "encryption.key").read_text()
             self.assertEqual(key1, key2)  # encryption.key reused so old .enc stays decryptable
             self.assertEqual(len(list((auth / ".oauth-tokens").glob("*.enc"))), 1)
@@ -842,10 +842,10 @@ class VirtualOAuthForgeTests(unittest.TestCase):
     def test_forge_can_embed_explicit_access_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             auth = self._sandbox(tmp)
-            ccscience_sync.forge_virtual_oauth(auth, access_token="sk-real-provider-key", force=True)
-            keys = ccscience_sync._parse_key_file((auth / "encryption.key").read_text())
+            ccscience.forge_virtual_oauth(auth, access_token="sk-real-provider-key", force=True)
+            keys = ccscience._parse_key_file((auth / "encryption.key").read_text())
             enc = next(iter((auth / ".oauth-tokens").glob("*.enc"))).read_text()
-            blob = json.loads(ccscience_sync.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
+            blob = json.loads(ccscience.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
             # Kept as an explicit low-level escape hatch; normal direct mode
             # uses a throwaway token and lets the forwarder inject the real key.
             self.assertEqual(blob["access_token"], "sk-real-provider-key")
@@ -853,37 +853,37 @@ class VirtualOAuthForgeTests(unittest.TestCase):
     def test_forge_without_token_uses_throwaway_placeholder(self):
         with tempfile.TemporaryDirectory() as tmp:
             auth = self._sandbox(tmp)
-            ccscience_sync.forge_virtual_oauth(auth)
-            keys = ccscience_sync._parse_key_file((auth / "encryption.key").read_text())
+            ccscience.forge_virtual_oauth(auth)
+            keys = ccscience._parse_key_file((auth / "encryption.key").read_text())
             enc = next(iter((auth / ".oauth-tokens").glob("*.enc"))).read_text()
-            blob = json.loads(ccscience_sync.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
+            blob = json.loads(ccscience.decrypt_token_v2(enc, keys["OAUTH_ENCRYPTION_KEY"]))
             self.assertTrue(blob["access_token"].startswith("sk-ant-virtual-"))
 
     def test_refuses_real_credential_dir(self):
         with self.assertRaises(SystemExit):
-            ccscience_sync.forge_virtual_oauth(ccscience_sync.home() / ".claude-science")
+            ccscience.forge_virtual_oauth(ccscience.home() / ".claude-science")
 
     def test_refuses_non_virtual_email(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(SystemExit):
-                ccscience_sync.forge_virtual_oauth(self._sandbox(tmp), email="me@gmail.com")
+                ccscience.forge_virtual_oauth(self._sandbox(tmp), email="me@gmail.com")
 
     def test_refuses_path_outside_sandbox(self):
         with tempfile.TemporaryDirectory() as tmp:
             auth = pathlib.Path(tmp) / "plain" / ".claude-science"
             auth.parent.mkdir(parents=True)
             with self.assertRaises(SystemExit):
-                ccscience_sync.forge_virtual_oauth(auth)
+                ccscience.forge_virtual_oauth(auth)
 
     def test_guardrail_rejects_real_port(self):
         with self.assertRaises(SystemExit):
-            ccscience_sync._assert_sandbox_guardrails(ccscience_sync.REAL_SCIENCE_PORT)
+            ccscience._assert_sandbox_guardrails(ccscience.REAL_SCIENCE_PORT)
 
 
 class SandboxLaunchEnvTests(unittest.TestCase):
     def test_launch_env_proxy_mode_routes_and_fastfails_anthropic(self):
-        with mock.patch.object(ccscience_sync, "home", return_value=pathlib.Path(tempfile.gettempdir())):
-            env = ccscience_sync.sandbox_launch_env(
+        with mock.patch.object(ccscience, "home", return_value=pathlib.Path(tempfile.gettempdir())):
+            env = ccscience.sandbox_launch_env(
                 {"mode": "csswitch-proxy", "base_url": "http://127.0.0.1:18991/secret123"})
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18991/secret123")
         self.assertEqual(env["https_proxy"], "http://127.0.0.1:18991")
@@ -892,8 +892,8 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertIn(".sandbox", env["HOME"])
 
     def test_launch_env_direct_mode_routes_to_provider_and_fastfails(self):
-        with mock.patch.object(ccscience_sync, "home", return_value=pathlib.Path(tempfile.gettempdir())):
-            env = ccscience_sync.sandbox_launch_env(
+        with mock.patch.object(ccscience, "home", return_value=pathlib.Path(tempfile.gettempdir())):
+            env = ccscience.sandbox_launch_env(
                 {"mode": "direct", "base_url": "https://api.deepseek.com/anthropic"})
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic")
         # Provider host bypasses the dead proxy so inference reaches it directly.
@@ -903,44 +903,44 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertNotIn("18991", env["https_proxy"])
 
     def test_thirdparty_target_prefers_direct_env(self):
-        with mock.patch.dict(ccscience_sync.os.environ, {"CCSCIENCE_TP_BASE": "", "CCSCIENCE_TP_KEY": ""}):
-            with mock.patch.object(ccscience_sync, "load_json", return_value={
+        with mock.patch.dict(ccscience.os.environ, {"CCSCIENCE_TP_BASE": "", "CCSCIENCE_TP_KEY": ""}):
+            with mock.patch.object(ccscience, "load_json", return_value={
                 "model": "deepseek-v4-pro",
                 "env": {"ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
                         "ANTHROPIC_AUTH_TOKEN": "sk-real-key"},
             }):
-                target = ccscience_sync.thirdparty_target()
+                target = ccscience.thirdparty_target()
         self.assertEqual(target["mode"], "direct")
         # Routed through OUR forwarder; the real provider is kept in provider_base.
-        self.assertEqual(target["base_url"], f"http://127.0.0.1:{ccscience_sync.THIRDPARTY_FWD_PORT}")
+        self.assertEqual(target["base_url"], f"http://127.0.0.1:{ccscience.THIRDPARTY_FWD_PORT}")
         self.assertEqual(target["provider_base"], "https://api.deepseek.com/anthropic")
         # The sandbox OAuth token stays a throwaway placeholder; the forwarder
         # reads/injects the real key instead of copying it into sandbox files.
         self.assertIsNone(target["access_token"])
 
     def test_thirdparty_target_id_changes_when_direct_model_changes(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+        with mock.patch.object(ccscience, "thirdparty_provider_details",
                                return_value={"base_url": "https://api.deepseek.com/anthropic",
                                              "key": "sk-test", "source": "test",
                                              "model": "deepseek-v4-pro"}):
-            first = ccscience_sync.thirdparty_target()
-        with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            first = ccscience.thirdparty_target()
+        with mock.patch.object(ccscience, "thirdparty_provider_details",
                                return_value={"base_url": "https://api.deepseek.com/anthropic",
                                              "key": "sk-test", "source": "test",
                                              "model": "deepseek-v4-flash"}):
-            second = ccscience_sync.thirdparty_target()
+            second = ccscience.thirdparty_target()
         self.assertNotEqual(first["id"], second["id"])
         self.assertEqual(first["model"], "deepseek-v4-pro")
         self.assertEqual(second["model"], "deepseek-v4-flash")
 
     def test_normalize_thinking_auto_to_adaptive(self):
         # operon sends thinking.type "auto"; DeepSeek/MiniMax only accept adaptive.
-        body = ccscience_sync.normalize_thirdparty_request(
+        body = ccscience.normalize_thirdparty_request(
             {"thinking": {"type": "auto"}}, "api.deepseek.com")
         self.assertEqual(body["thinking"]["type"], "adaptive")
 
     def test_normalize_thinking_deepseek_forced_tool_disables(self):
-        body = ccscience_sync.normalize_thirdparty_request(
+        body = ccscience.normalize_thirdparty_request(
             {"thinking": {"type": "auto"}, "tool_choice": {"type": "any"}}, "api.deepseek.com")
         self.assertEqual(body["thinking"]["type"], "disabled")
 
@@ -948,7 +948,7 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         # cache_control is Anthropic-only; third-party endpoints reject the
         # request when present (MiniMax 400 2013, DeepSeek 400). Strip it from
         # tools, system blocks, and message content blocks.
-        body = ccscience_sync.normalize_thirdparty_request({
+        body = ccscience.normalize_thirdparty_request({
             "tools": [{"name": "x", "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}},
                        "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
             "system": [{"type": "text", "text": "rules",
@@ -968,7 +968,7 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         })
 
     def test_normalize_tools_drops_empty_schema_and_invalid_entries(self):
-        body = ccscience_sync.normalize_thirdparty_request({
+        body = ccscience.normalize_thirdparty_request({
             "tools": [
                 {"name": "valid-but-empty"},
                 {"name": "with-schema", "input_schema": {"properties": {"q": {"type": "string"}}}},
@@ -986,7 +986,7 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertEqual(body["tool_choice"], {"type": "auto"})
 
     def test_normalize_removes_forced_tool_choice_when_no_tools_survive(self):
-        body = ccscience_sync.normalize_thirdparty_request({
+        body = ccscience.normalize_thirdparty_request({
             "tools": [{"name": ""}, "bad"],
             "tool_choice": {"type": "any"},
         }, "api.minimaxi.com")
@@ -995,7 +995,7 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertNotIn("tool_choice", body)
 
     def test_normalize_drops_schema_less_web_search_tool(self):
-        body = ccscience_sync.normalize_thirdparty_request({
+        body = ccscience.normalize_thirdparty_request({
             "tools": [
                 {"name": "web_search"},
                 {"name": "bash", "input_schema": {
@@ -1009,7 +1009,7 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertEqual([tool["name"] for tool in body["tools"]], ["bash"])
 
     def test_normalize_deepseek_forced_tool_still_strips_cache_control(self):
-        body = ccscience_sync.normalize_thirdparty_request({
+        body = ccscience.normalize_thirdparty_request({
             "thinking": {"type": "auto"},
             "tool_choice": {"type": "any"},
             "tools": [{"name": "x", "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}},
@@ -1020,28 +1020,28 @@ class SandboxLaunchEnvTests(unittest.TestCase):
         self.assertEqual(body["tools"][0]["input_schema"]["properties"]["q"]["type"], "string")
 
     def test_thirdparty_target_falls_back_to_running_proxy(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_provider_details", return_value=None):
-            with mock.patch.object(ccscience_sync, "csswitch_proxy_url",
+        with mock.patch.object(ccscience, "thirdparty_provider_details", return_value=None):
+            with mock.patch.object(ccscience, "csswitch_proxy_url",
                                    return_value="http://127.0.0.1:18991/secret"):
-                with mock.patch.object(ccscience_sync, "csswitch_bridge_payload",
+                with mock.patch.object(ccscience, "csswitch_bridge_payload",
                                        return_value={"enabled": True, "proxy_running": True,
                                                      "model": "deepseek-v4-pro"}):
-                    target = ccscience_sync.thirdparty_target()
+                    target = ccscience.thirdparty_target()
         self.assertEqual(target["mode"], "csswitch-proxy")
         self.assertEqual(target["base_url"], "http://127.0.0.1:18991/secret")
 
     def test_thirdparty_target_none_without_any_source(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_provider_details", return_value=None):
-            with mock.patch.object(ccscience_sync, "csswitch_proxy_url", return_value=None):
-                with mock.patch.object(ccscience_sync, "csswitch_bridge_payload",
+        with mock.patch.object(ccscience, "thirdparty_provider_details", return_value=None):
+            with mock.patch.object(ccscience, "csswitch_proxy_url", return_value=None):
+                with mock.patch.object(ccscience, "csswitch_bridge_payload",
                                        return_value={"enabled": False, "proxy_running": False}):
-                    self.assertIsNone(ccscience_sync.thirdparty_target())
+                    self.assertIsNone(ccscience.thirdparty_target())
 
     def test_open_thirdparty_requires_a_source(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_target", return_value=None):
+        with mock.patch.object(ccscience, "thirdparty_target", return_value=None):
             with self.assertRaises(SystemExit) as raised:
-                ccscience_sync.open_thirdparty("en")
-        self.assertEqual(str(raised.exception), ccscience_sync.tr("en", "thirdparty_needs_source"))
+                ccscience.open_thirdparty("en")
+        self.assertEqual(str(raised.exception), ccscience.tr("en", "thirdparty_needs_source"))
 
 
 class SandboxRuntimeTests(unittest.TestCase):
@@ -1051,19 +1051,19 @@ class SandboxRuntimeTests(unittest.TestCase):
             (src / "sub").mkdir(parents=True)
             (src / "sub" / "f.txt").write_text("hi", encoding="utf-8")
             dst = pathlib.Path(tmp) / "dst"
-            ccscience_sync._clone_dir(src, dst)
+            ccscience._clone_dir(src, dst)
             self.assertEqual((dst / "sub" / "f.txt").read_text(encoding="utf-8"), "hi")
             # no partial staging dir left behind
             self.assertFalse([p for p in dst.parent.iterdir() if ".partial-" in p.name])
             # second call short-circuits on existing dst without error
-            ccscience_sync._clone_dir(src, dst)
+            ccscience._clone_dir(src, dst)
 
     def test_launched_proxy_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(ccscience_sync, "sandbox_home", return_value=pathlib.Path(tmp)):
-                self.assertIsNone(ccscience_sync.launched_proxy_url())
-                ccscience_sync.launched_proxy_path().write_text("http://127.0.0.1:18991/abc", encoding="utf-8")
-                self.assertEqual(ccscience_sync.launched_proxy_url(), "http://127.0.0.1:18991/abc")
+            with mock.patch.object(ccscience, "sandbox_home", return_value=pathlib.Path(tmp)):
+                self.assertIsNone(ccscience.launched_proxy_url())
+                ccscience.launched_proxy_path().write_text("http://127.0.0.1:18991/abc", encoding="utf-8")
+                self.assertEqual(ccscience.launched_proxy_url(), "http://127.0.0.1:18991/abc")
 
     def test_forge_refuses_symlink_leaf_to_real_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1072,21 +1072,21 @@ class SandboxRuntimeTests(unittest.TestCase):
             sbx = pathlib.Path(tmp) / ".sandbox" / "home" / ".claude-science"
             sbx.parent.mkdir(parents=True)
             sbx.symlink_to(real)
-            with mock.patch.object(ccscience_sync, "home", return_value=pathlib.Path(tmp) / "real"):
+            with mock.patch.object(ccscience, "home", return_value=pathlib.Path(tmp) / "real"):
                 with self.assertRaises(SystemExit):
-                    ccscience_sync.forge_virtual_oauth(sbx)
+                    ccscience.forge_virtual_oauth(sbx)
 
 
 class ThirdpartyForwarderTests(unittest.TestCase):
     def setUp(self):
-        ccscience_sync._LAST_UPSTREAM_MODEL = ""
-        ccscience_sync._TIER_MODELS.clear()
-        ccscience_sync._LAST_PROVIDER_STATE = ""
+        ccscience._LAST_UPSTREAM_MODEL = ""
+        ccscience._TIER_MODELS.clear()
+        ccscience._LAST_PROVIDER_STATE = ""
 
     @contextlib.contextmanager
     def _isolated_forwarder_settings(self):
         with mock.patch.dict(os.environ, {"CCSCIENCE_TP_MODEL": ""}, clear=False):
-            with mock.patch.object(ccscience_sync, "_thirdparty_settings_env", return_value={}):
+            with mock.patch.object(ccscience, "_thirdparty_settings_env", return_value={}):
                 yield
 
     def _forwarder_json_roundtrip(self, provider, request_body, upstream_response):
@@ -1114,13 +1114,13 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["timeout"] = timeout
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             with self._isolated_forwarder_settings():
-                with mock.patch.object(ccscience_sync, "thirdparty_provider_details", return_value=provider):
-                    with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "thirdparty_provider_details", return_value=provider):
+                    with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                         req = urllib.request.Request(
                             f"http://127.0.0.1:{server.server_port}/v1/messages",
                             data=json.dumps(request_body).encode(),
@@ -1136,28 +1136,28 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         return captured, got
 
     def test_provider_brand_known_and_fallback(self):
-        self.assertEqual(ccscience_sync._provider_brand("api.deepseek.com"), "DeepSeek")
-        self.assertEqual(ccscience_sync._provider_brand("api.minimaxi.com"), "MiniMax")
-        self.assertEqual(ccscience_sync._provider_brand("api.foobar.example.cn"), "Foobar")
-        self.assertEqual(ccscience_sync._provider_brand(""), "Third-Party")
+        self.assertEqual(ccscience._provider_brand("api.deepseek.com"), "DeepSeek")
+        self.assertEqual(ccscience._provider_brand("api.minimaxi.com"), "MiniMax")
+        self.assertEqual(ccscience._provider_brand("api.foobar.example.cn"), "Foobar")
+        self.assertEqual(ccscience._provider_brand(""), "Third-Party")
 
     def test_pretty_model(self):
-        self.assertEqual(ccscience_sync._pretty_model("DeepSeek", "deepseek-v4-pro"), "DeepSeek V4 Pro")
-        self.assertEqual(ccscience_sync._pretty_model("MiniMax", "MiniMax-M2"), "MiniMax M2")
+        self.assertEqual(ccscience._pretty_model("DeepSeek", "deepseek-v4-pro"), "DeepSeek V4 Pro")
+        self.assertEqual(ccscience._pretty_model("MiniMax", "MiniMax-M2"), "MiniMax M2")
         # no model known yet -> fall back to the brand
-        self.assertEqual(ccscience_sync._pretty_model("DeepSeek", ""), "DeepSeek")
+        self.assertEqual(ccscience._pretty_model("DeepSeek", ""), "DeepSeek")
 
     def test_record_upstream_model_maps_tier(self):
-        ccscience_sync._record_upstream_model(
+        ccscience._record_upstream_model(
             "claude-opus-4-8", b'{"type":"message","model":"deepseek-v4-pro"}')
-        self.assertEqual(ccscience_sync._LAST_UPSTREAM_MODEL, "deepseek-v4-pro")
-        self.assertEqual(ccscience_sync._TIER_MODELS["claude-opus-4-8"], "deepseek-v4-pro")
+        self.assertEqual(ccscience._LAST_UPSTREAM_MODEL, "deepseek-v4-pro")
+        self.assertEqual(ccscience._TIER_MODELS["claude-opus-4-8"], "deepseek-v4-pro")
         # a blob without a model id leaves state untouched
-        ccscience_sync._record_upstream_model("claude-opus-4-8", b'{"type":"ping"}')
-        self.assertEqual(ccscience_sync._LAST_UPSTREAM_MODEL, "deepseek-v4-pro")
+        ccscience._record_upstream_model("claude-opus-4-8", b'{"type":"ping"}')
+        self.assertEqual(ccscience._LAST_UPSTREAM_MODEL, "deepseek-v4-pro")
 
     def test_forwarder_health_endpoint_reports_version(self):
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -1170,8 +1170,8 @@ class ThirdpartyForwarderTests(unittest.TestCase):
 
         self.assertTrue(got["ok"])
         self.assertEqual(got["adapter"], "thirdparty-forwarder")
-        self.assertEqual(got["version"], ccscience_sync.VERSION)
-        self.assertEqual(got["forwarder_revision"], ccscience_sync.THIRDPARTY_FWD_REVISION)
+        self.assertEqual(got["version"], ccscience.VERSION)
+        self.assertEqual(got["forwarder_revision"], ccscience.THIRDPARTY_FWD_REVISION)
         self.assertIsInstance(got["pid"], int)
 
     def test_thirdparty_forwarder_healthy_requires_current_version(self):
@@ -1190,78 +1190,78 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             def read(self, *_args):
                 return json.dumps(self.payload).encode()
 
-        with mock.patch.object(ccscience_sync.urllib.request, "urlopen",
+        with mock.patch.object(ccscience.urllib.request, "urlopen",
                                return_value=Response({"ok": True,
                                                       "adapter": "thirdparty-forwarder",
-                                                      "version": ccscience_sync.VERSION,
-                                                      "forwarder_revision": ccscience_sync.THIRDPARTY_FWD_REVISION})):
-            self.assertTrue(ccscience_sync.thirdparty_forwarder_healthy(12345))
+                                                      "version": ccscience.VERSION,
+                                                      "forwarder_revision": ccscience.THIRDPARTY_FWD_REVISION})):
+            self.assertTrue(ccscience.thirdparty_forwarder_healthy(12345))
 
-        with mock.patch.object(ccscience_sync.urllib.request, "urlopen",
+        with mock.patch.object(ccscience.urllib.request, "urlopen",
                                return_value=Response({"ok": True,
                                                       "adapter": "thirdparty-forwarder",
                                                       "version": "0.3.0",
-                                                      "forwarder_revision": ccscience_sync.THIRDPARTY_FWD_REVISION})):
-            self.assertFalse(ccscience_sync.thirdparty_forwarder_healthy(12345))
+                                                      "forwarder_revision": ccscience.THIRDPARTY_FWD_REVISION})):
+            self.assertFalse(ccscience.thirdparty_forwarder_healthy(12345))
 
-        with mock.patch.object(ccscience_sync.urllib.request, "urlopen",
+        with mock.patch.object(ccscience.urllib.request, "urlopen",
                                return_value=Response({"ok": True,
                                                       "adapter": "thirdparty-forwarder",
-                                                      "version": ccscience_sync.VERSION,
+                                                      "version": ccscience.VERSION,
                                                       "forwarder_revision": 1})):
-            self.assertFalse(ccscience_sync.thirdparty_forwarder_healthy(12345))
+            self.assertFalse(ccscience.thirdparty_forwarder_healthy(12345))
 
-        with mock.patch.object(ccscience_sync.urllib.request, "urlopen",
-                               side_effect=ccscience_sync.urllib.error.URLError("down")):
-            self.assertFalse(ccscience_sync.thirdparty_forwarder_healthy(12345))
+        with mock.patch.object(ccscience.urllib.request, "urlopen",
+                               side_effect=ccscience.urllib.error.URLError("down")):
+            self.assertFalse(ccscience.thirdparty_forwarder_healthy(12345))
 
     def test_terminate_process_on_port_only_kills_ccscience_process(self):
-        with mock.patch.object(ccscience_sync, "is_windows", return_value=False):
-            with mock.patch.object(ccscience_sync, "_listening_pids_on_port", side_effect=[[123456], []]):
-                with mock.patch.object(ccscience_sync, "_process_command",
-                                       return_value="/usr/bin/python ccscience_sync.py serve-forwarder"):
-                    with mock.patch.object(ccscience_sync.os, "kill") as kill:
-                        self.assertTrue(ccscience_sync._terminate_process_on_port(19784))
+        with mock.patch.object(ccscience, "is_windows", return_value=False):
+            with mock.patch.object(ccscience, "_listening_pids_on_port", side_effect=[[123456], []]):
+                with mock.patch.object(ccscience, "_process_command",
+                                       return_value="/usr/bin/python ccscience.py serve-forwarder"):
+                    with mock.patch.object(ccscience.os, "kill") as kill:
+                        self.assertTrue(ccscience._terminate_process_on_port(19784))
 
-        kill.assert_called_once_with(123456, ccscience_sync.signal.SIGTERM)
+        kill.assert_called_once_with(123456, ccscience.signal.SIGTERM)
 
     def test_terminate_process_on_port_skips_unrelated_process(self):
-        with mock.patch.object(ccscience_sync, "is_windows", return_value=False):
-            with mock.patch.object(ccscience_sync, "_listening_pids_on_port", return_value=[123456]):
-                with mock.patch.object(ccscience_sync, "_process_command", return_value="/usr/bin/python other.py"):
-                    with mock.patch.object(ccscience_sync.os, "kill") as kill:
-                        self.assertFalse(ccscience_sync._terminate_process_on_port(19784))
+        with mock.patch.object(ccscience, "is_windows", return_value=False):
+            with mock.patch.object(ccscience, "_listening_pids_on_port", return_value=[123456]):
+                with mock.patch.object(ccscience, "_process_command", return_value="/usr/bin/python other.py"):
+                    with mock.patch.object(ccscience.os, "kill") as kill:
+                        self.assertFalse(ccscience._terminate_process_on_port(19784))
 
         kill.assert_not_called()
 
     def test_ensure_forwarder_clears_stale_port_and_spawns(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_forwarder_healthy",
+        with mock.patch.object(ccscience, "thirdparty_forwarder_healthy",
                                side_effect=[False, False, True]) as healthy:
-            with mock.patch.object(ccscience_sync, "_terminate_process_on_port") as terminate:
-                with mock.patch.object(ccscience_sync.subprocess, "Popen") as popen:
-                    with mock.patch.object(ccscience_sync.time, "sleep"):
-                        ccscience_sync.ensure_thirdparty_forwarder()
+            with mock.patch.object(ccscience, "_terminate_process_on_port") as terminate:
+                with mock.patch.object(ccscience.subprocess, "Popen") as popen:
+                    with mock.patch.object(ccscience.time, "sleep"):
+                        ccscience.ensure_thirdparty_forwarder()
 
         self.assertEqual(healthy.call_count, 3)
-        terminate.assert_called_once_with(ccscience_sync.THIRDPARTY_FWD_PORT)
+        terminate.assert_called_once_with(ccscience.THIRDPARTY_FWD_PORT)
         popen.assert_called_once()
 
     def test_ensure_forwarder_raises_when_spawn_never_becomes_ready(self):
-        with mock.patch.object(ccscience_sync, "thirdparty_forwarder_healthy", return_value=False):
-            with mock.patch.object(ccscience_sync, "_terminate_process_on_port"):
-                with mock.patch.object(ccscience_sync.subprocess, "Popen"):
-                    with mock.patch.object(ccscience_sync.time, "sleep"):
+        with mock.patch.object(ccscience, "thirdparty_forwarder_healthy", return_value=False):
+            with mock.patch.object(ccscience, "_terminate_process_on_port"):
+                with mock.patch.object(ccscience.subprocess, "Popen"):
+                    with mock.patch.object(ccscience.time, "sleep"):
                         with self.assertRaises(SystemExit) as raised:
-                            ccscience_sync.ensure_thirdparty_forwarder()
+                            ccscience.ensure_thirdparty_forwarder()
 
         self.assertEqual(str(raised.exception), "third-party forwarder did not become ready")
 
     def test_thirdparty_label_resets_when_same_provider_model_changes(self):
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.deepseek.com/anthropic",
                                                  "key": "sk-test", "source": "test",
                                                  "model": "deepseek-v4-pro"}):
@@ -1269,13 +1269,13 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                     f"http://127.0.0.1:{server.server_port}/thirdparty-label", timeout=5
                 ) as resp:
                     initial = json.loads(resp.read().decode())
-                ccscience_sync._record_upstream_model(
+                ccscience._record_upstream_model(
                     "claude-opus-4-8", b'{"model":"deepseek-v4-pro"}')
                 with urllib.request.urlopen(
                     f"http://127.0.0.1:{server.server_port}/thirdparty-label", timeout=5
                 ) as resp:
                     first = json.loads(resp.read().decode())
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.deepseek.com/anthropic",
                                                  "key": "sk-test", "source": "test",
                                                  "model": "deepseek-v4-flash"}):
@@ -1299,7 +1299,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         sentinel = object()
         err = urllib.error.URLError(ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
         with mock.patch("urllib.request.urlopen", side_effect=[err, sentinel]) as uo:
-            got = ccscience_sync._open_upstream(mock.Mock(), timeout=1)
+            got = ccscience._open_upstream(mock.Mock(), timeout=1)
         self.assertIs(got, sentinel)
         # the retry disabled verification
         self.assertEqual(uo.call_args.kwargs.get("context").verify_mode, ssl.CERT_NONE)
@@ -1311,32 +1311,32 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"CCSCIENCE_TP_STRICT_TLS": "1"}):
             with mock.patch("urllib.request.urlopen", side_effect=err):
                 with self.assertRaises(urllib.error.URLError):
-                    ccscience_sync._open_upstream(mock.Mock(), timeout=1)
+                    ccscience._open_upstream(mock.Mock(), timeout=1)
 
     def test_normalize_minimax_keeps_thinking_not_disabled(self):
         # the DeepSeek-only "disable thinking under forced tool_choice" must not
         # fire for other providers (e.g. MiniMax) — they just get adaptive.
-        body = ccscience_sync.normalize_thirdparty_request(
+        body = ccscience.normalize_thirdparty_request(
             {"thinking": {"type": "auto"}, "tool_choice": {"type": "any"}}, "api.minimaxi.com")
         self.assertEqual(body["thinking"]["type"], "adaptive")
 
     def test_provider_model_for_request_uses_ccswitch_tier_override(self):
-        with mock.patch.object(ccscience_sync, "load_json", return_value={
+        with mock.patch.object(ccscience, "load_json", return_value={
             "model": "opus",
             "env": {
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M3[1M]",
                 "ANTHROPIC_MODEL": "fallback-model",
             },
         }):
-            got = ccscience_sync._provider_model_for_request("claude-opus-4-8")
+            got = ccscience._provider_model_for_request("claude-opus-4-8")
         self.assertEqual(got, "MiniMax-M3")
 
     def test_provider_model_for_request_falls_back_to_anthropic_model(self):
-        with mock.patch.object(ccscience_sync, "load_json", return_value={
+        with mock.patch.object(ccscience, "load_json", return_value={
             "model": "sonnet",
             "env": {"ANTHROPIC_MODEL": "kimi-k2-0905-preview"},
         }):
-            got = ccscience_sync._provider_model_for_request("claude-sonnet-5")
+            got = ccscience._provider_model_for_request("claude-sonnet-5")
         self.assertEqual(got, "kimi-k2-0905-preview")
 
     def test_provider_model_per_tier_overrides_selected_model(self):
@@ -1344,25 +1344,25 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         # headline model (deepseek-v4-pro, the opus tier), but a background
         # haiku request must still map to the cheaper haiku-tier model rather
         # than being short-circuited onto the pricey selected model.
-        with mock.patch.object(ccscience_sync, "load_json", return_value={
+        with mock.patch.object(ccscience, "load_json", return_value={
             "model": "opus",
             "env": {
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
             },
         }):
-            got = ccscience_sync._provider_model_for_request(
+            got = ccscience._provider_model_for_request(
                 "claude-haiku-4-5", "https://api.deepseek.com", "deepseek-v4-pro")
         self.assertEqual(got, "deepseek-v4-flash")
 
     def test_provider_model_uses_selected_model_when_no_tier_override(self):
         # Single-model providers (Kimi maps every tier to one model) have no
         # per-tier env entry, so selected_model is still honored.
-        with mock.patch.object(ccscience_sync, "load_json", return_value={
+        with mock.patch.object(ccscience, "load_json", return_value={
             "model": "sonnet",
             "env": {"ANTHROPIC_AUTH_TOKEN": "sk-x"},
         }):
-            got = ccscience_sync._provider_model_for_request(
+            got = ccscience._provider_model_for_request(
                 "claude-haiku-4-5", "https://api.moonshot.ai/v1", "kimi-k2-0905-preview")
         self.assertEqual(got, "kimi-k2-0905-preview")
 
@@ -1386,8 +1386,8 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                     return self._chunks.pop(0)
                 raise http.client.IncompleteRead(b"")
 
-        handler = ccscience_sync.ThirdpartyForwardHandler.__new__(
-            ccscience_sync.ThirdpartyForwardHandler)
+        handler = ccscience.ThirdpartyForwardHandler.__new__(
+            ccscience.ThirdpartyForwardHandler)
         handler.wfile = io.BytesIO()
         handler.send_response = lambda *a, **k: None
         handler.send_header = lambda *a, **k: None
@@ -1399,40 +1399,40 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         self.assertIn(b"Hi", out)
 
     def test_openai_compatible_base_detection(self):
-        self.assertTrue(ccscience_sync._is_openai_compatible_base("https://api.moonshot.ai/v1"))
-        self.assertTrue(ccscience_sync._is_openai_compatible_base("https://openrouter.ai/api/v1"))
-        self.assertTrue(ccscience_sync._is_openai_compatible_base("https://api.deepseek.com"))
-        self.assertTrue(ccscience_sync._is_openai_compatible_base("https://open.bigmodel.cn/api/paas/v4"))
-        self.assertTrue(ccscience_sync._is_openai_compatible_base("https://dashscope.aliyuncs.com/compatible-mode/v1"))
-        self.assertFalse(ccscience_sync._is_openai_compatible_base("https://api.deepseek.com/anthropic"))
-        self.assertFalse(ccscience_sync._is_openai_compatible_base("https://api.minimax.io/anthropic"))
+        self.assertTrue(ccscience._is_openai_compatible_base("https://api.moonshot.ai/v1"))
+        self.assertTrue(ccscience._is_openai_compatible_base("https://openrouter.ai/api/v1"))
+        self.assertTrue(ccscience._is_openai_compatible_base("https://api.deepseek.com"))
+        self.assertTrue(ccscience._is_openai_compatible_base("https://open.bigmodel.cn/api/paas/v4"))
+        self.assertTrue(ccscience._is_openai_compatible_base("https://dashscope.aliyuncs.com/compatible-mode/v1"))
+        self.assertFalse(ccscience._is_openai_compatible_base("https://api.deepseek.com/anthropic"))
+        self.assertFalse(ccscience._is_openai_compatible_base("https://api.minimax.io/anthropic"))
         self.assertEqual(
-            ccscience_sync._openai_chat_url("https://api.moonshot.ai/v1"),
+            ccscience._openai_chat_url("https://api.moonshot.ai/v1"),
             "https://api.moonshot.ai/v1/chat/completions",
         )
         self.assertEqual(
-            ccscience_sync._openai_chat_url("https://open.bigmodel.cn/api/paas/v4"),
+            ccscience._openai_chat_url("https://open.bigmodel.cn/api/paas/v4"),
             "https://open.bigmodel.cn/api/paas/v4/chat/completions",
         )
 
     def test_anthropic_endpoint_url_accepts_base_url_variants(self):
         self.assertEqual(
-            ccscience_sync._anthropic_endpoint_url("https://api.deepseek.com/anthropic", "/v1/messages"),
+            ccscience._anthropic_endpoint_url("https://api.deepseek.com/anthropic", "/v1/messages"),
             "https://api.deepseek.com/anthropic/v1/messages",
         )
         self.assertEqual(
-            ccscience_sync._anthropic_endpoint_url("https://api.deepseek.com/anthropic/v1", "/v1/messages"),
+            ccscience._anthropic_endpoint_url("https://api.deepseek.com/anthropic/v1", "/v1/messages"),
             "https://api.deepseek.com/anthropic/v1/messages",
         )
         self.assertEqual(
-            ccscience_sync._anthropic_endpoint_url(
+            ccscience._anthropic_endpoint_url(
                 "https://api.deepseek.com/anthropic/v1/messages",
                 "/v1/messages",
             ),
             "https://api.deepseek.com/anthropic/v1/messages",
         )
         self.assertEqual(
-            ccscience_sync._anthropic_endpoint_url(
+            ccscience._anthropic_endpoint_url(
                 "https://api.deepseek.com/anthropic/v1/messages",
                 "/v1/messages?beta=1",
             ),
@@ -1458,7 +1458,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                        "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}}}],
             "tool_choice": {"type": "any"},
         }
-        got = ccscience_sync._anthropic_to_openai_request(body, "kimi-k2", "api.moonshot.ai")
+        got = ccscience._anthropic_to_openai_request(body, "kimi-k2", "api.moonshot.ai")
         self.assertEqual(got["model"], "kimi-k2")
         self.assertEqual(got["messages"][0], {"role": "system", "content": "system rules"})
         self.assertEqual(got["messages"][1], {"role": "user", "content": "hi"})
@@ -1478,7 +1478,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 {"type": "video", "source": {"type": "base64", "media_type": "video/mp4", "data": "dmlk"}},
             ]}],
         }
-        got = ccscience_sync._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
+        got = ccscience._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
         content = got["messages"][0]["content"]
 
         self.assertEqual(content[0], {"type": "text", "text": "describe these"})
@@ -1497,7 +1497,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 ]},
             ]}],
         }
-        got = ccscience_sync._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
+        got = ccscience._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
 
         self.assertEqual(got["messages"][0], {"role": "user", "content": "prefix"})
         self.assertEqual(got["messages"][1]["role"], "tool")
@@ -1517,7 +1517,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
             ]},
         ]}
-        got = ccscience_sync._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
+        got = ccscience._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
 
         self.assertEqual(got["messages"][1], {
             "role": "tool", "tool_call_id": "toolu_1", "content": "ok", "name": "lookup",
@@ -1532,7 +1532,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
             ]},
         ]}
-        got = ccscience_sync._anthropic_to_openai_request(body, "gpt-test", "api.openai.com")
+        got = ccscience._anthropic_to_openai_request(body, "gpt-test", "api.openai.com")
 
         self.assertEqual(got["messages"][1], {
             "role": "tool", "tool_call_id": "toolu_1", "content": "ok",
@@ -1550,7 +1550,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 {"role": "user", "content": [{"type": "text", "text": "continue"}]},
             ],
         }
-        got = ccscience_sync._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
+        got = ccscience._anthropic_to_openai_request(body, "kimi-k2.6", "api.moonshot.ai")
 
         self.assertNotIn("thinking", got)
         self.assertEqual(got["messages"][0]["content"], "answer")
@@ -1561,7 +1561,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             {"type": "thinking", "thinking": "provider-specific"},
             {"type": "text", "text": "answer"},
         ]}]}
-        got = ccscience_sync._anthropic_to_openai_request(body, "gpt-test", "api.openai.com")
+        got = ccscience._anthropic_to_openai_request(body, "gpt-test", "api.openai.com")
 
         self.assertNotIn("reasoning_content", got["messages"][0])
 
@@ -1573,13 +1573,13 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             ]},
             {"role": "user", "content": [{"type": "text", "text": "continue"}]},
         ]}
-        got = ccscience_sync._anthropic_to_openai_request(body, "deepseek-v4-pro", "api.deepseek.com")
+        got = ccscience._anthropic_to_openai_request(body, "deepseek-v4-pro", "api.deepseek.com")
 
         self.assertEqual(got["messages"][0]["reasoning_content"], "deep reasoning")
         self.assertEqual(got["thinking"], {"type": "disabled"})
 
     def test_deepseek_openai_request_maps_adaptive_thinking_to_enabled(self):
-        got = ccscience_sync._anthropic_to_openai_request(
+        got = ccscience._anthropic_to_openai_request(
             {"thinking": {"type": "adaptive", "reasoning_effort": "max"}, "messages": []},
             "deepseek-v4-pro",
             "api.deepseek.com",
@@ -1595,7 +1595,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             ]},
             {"role": "user", "content": [{"type": "text", "text": "continue"}]},
         ]}
-        got = ccscience_sync._anthropic_to_openai_request(body, "MiniMax-M3", "api.minimax.io")
+        got = ccscience._anthropic_to_openai_request(body, "MiniMax-M3", "api.minimax.io")
 
         self.assertTrue(got["reasoning_split"])
         self.assertEqual(got["thinking"], {"type": "adaptive"})
@@ -1605,17 +1605,17 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         ])
 
     def test_kimi_request_forwards_only_supported_thinking_modes(self):
-        enabled = ccscience_sync._anthropic_to_openai_request(
+        enabled = ccscience._anthropic_to_openai_request(
             {"thinking": {"type": "enabled", "keep": "all"}, "messages": []},
             "kimi-k2.6",
             "api.moonshot.ai",
         )
-        disabled = ccscience_sync._anthropic_to_openai_request(
+        disabled = ccscience._anthropic_to_openai_request(
             {"thinking": {"type": "disabled"}, "messages": []},
             "kimi-k2.6",
             "api.moonshot.ai",
         )
-        always_on = ccscience_sync._anthropic_to_openai_request(
+        always_on = ccscience._anthropic_to_openai_request(
             {"thinking": {"type": "disabled"}, "messages": []},
             "kimi-k2.7-code",
             "api.moonshot.ai",
@@ -1626,7 +1626,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         self.assertNotIn("thinking", always_on)
 
     def test_kimi_request_disables_thinking_for_forced_tool_choice(self):
-        got = ccscience_sync._anthropic_to_openai_request(
+        got = ccscience._anthropic_to_openai_request(
             {"messages": [], "thinking": {"type": "enabled"},
              "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
              "tool_choice": {"type": "tool", "name": "lookup"}},
@@ -1638,7 +1638,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         self.assertEqual(got["thinking"], {"type": "disabled"})
 
     def test_kimi_always_thinking_model_downgrades_forced_tool_choice_to_auto(self):
-        got = ccscience_sync._anthropic_to_openai_request(
+        got = ccscience._anthropic_to_openai_request(
             {"messages": [], "thinking": {"type": "disabled"},
              "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
              "tool_choice": {"type": "tool", "name": "lookup"}},
@@ -1650,7 +1650,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         self.assertNotIn("thinking", got)
 
     def test_kimi_request_strips_sampling_parameters_that_k2_rejects(self):
-        got = ccscience_sync._anthropic_to_openai_request(
+        got = ccscience._anthropic_to_openai_request(
             {"messages": [], "temperature": 0.2, "top_p": 0.8, "stream": True},
             "kimi-k2.6",
             "api.moonshot.ai",
@@ -1661,7 +1661,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
         self.assertTrue(got["stream"])
 
     def test_non_kimi_openai_provider_keeps_sampling_parameters(self):
-        got = ccscience_sync._anthropic_to_openai_request(
+        got = ccscience._anthropic_to_openai_request(
             {"messages": [], "temperature": 0.2, "top_p": 0.8},
             "gpt-test",
             "api.openai.com",
@@ -1677,7 +1677,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             "messages": [{"role": "user", "content": [{"type": "text", "text": "hello world"}]}],
             "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
         }
-        self.assertGreater(ccscience_sync.estimate_anthropic_input_tokens(body), 1)
+        self.assertGreater(ccscience.estimate_anthropic_input_tokens(body), 1)
 
     def test_openai_response_to_anthropic_message(self):
         blob = json.dumps({
@@ -1687,7 +1687,7 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                          "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 7, "completion_tokens": 3},
         }).encode()
-        got = json.loads(ccscience_sync._openai_to_anthropic_response(blob, "claude-opus-4-8"))
+        got = json.loads(ccscience._openai_to_anthropic_response(blob, "claude-opus-4-8"))
         self.assertEqual(got["type"], "message")
         self.assertEqual(got["model"], "kimi-k2")
         self.assertEqual(got["content"], [
@@ -1710,27 +1710,27 @@ class ThirdpartyForwarderTests(unittest.TestCase):
                 return self.parts.pop(0)
 
         self.assertEqual(
-            list(ccscience_sync._iter_openai_sse_payloads(Stream())),
+            list(ccscience._iter_openai_sse_payloads(Stream())),
             [b'{"model":"kimi-k2","choices":[]}', b"[DONE]"],
         )
 
     def test_openai_stream_reasoning_delta_diffs_cumulative_details(self):
         previous = ""
-        got, previous = ccscience_sync._openai_stream_reasoning_delta(
+        got, previous = ccscience._openai_stream_reasoning_delta(
             {"reasoning_details": [{"type": "text", "text": "think"}]},
             previous,
         )
         self.assertEqual(got, "think")
         self.assertEqual(previous, "think")
 
-        got, previous = ccscience_sync._openai_stream_reasoning_delta(
+        got, previous = ccscience._openai_stream_reasoning_delta(
             {"reasoning_details": [{"type": "text", "text": "thinking"}]},
             previous,
         )
         self.assertEqual(got, "ing")
         self.assertEqual(previous, "thinking")
 
-        got, previous = ccscience_sync._openai_stream_reasoning_delta(
+        got, previous = ccscience._openai_stream_reasoning_delta(
             {"reasoning_content": " next"},
             previous,
         )
@@ -1966,15 +1966,15 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["timeout"] = timeout
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.moonshot.ai/v1",
                                                  "key": "sk-test", "source": "test", "model": "kimi-k2"}):
-                with mock.patch.object(ccscience_sync, "_provider_model_for_request", return_value="kimi-k2"):
-                    with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_provider_model_for_request", return_value="kimi-k2"):
+                    with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                         req = urllib.request.Request(
                             f"http://127.0.0.1:{server.server_port}/v1/messages",
                             data=json.dumps({
@@ -2028,16 +2028,16 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["body"] = json.loads(req.data.decode())
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             with self._isolated_forwarder_settings():
-                with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+                with mock.patch.object(ccscience, "thirdparty_provider_details",
                                        return_value={"base_url": "https://api.deepseek.com/anthropic/v1",
                                                      "key": "sk-test", "source": "test",
                                                      "model": "deepseek-v4-pro"}):
-                    with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                    with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                         req = urllib.request.Request(
                             f"http://127.0.0.1:{server.server_port}/v1/messages",
                             data=json.dumps({
@@ -2092,15 +2092,15 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["body"] = json.loads(req.data.decode())
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.deepseek.com",
                                                  "key": "sk-test", "source": "test",
                                                  "model": "deepseek-v4-pro"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages",
                         data=json.dumps({
@@ -2163,15 +2163,15 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["body"] = json.loads(req.data.decode())
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.minimax.io/v1",
                                                  "key": "sk-test", "source": "test",
                                                  "model": "MiniMax-M3"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages",
                         data=json.dumps({
@@ -2213,14 +2213,14 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             calls.append(True)
             raise AssertionError("count_tokens should not reach upstream")
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.moonshot.ai/v1",
                                                  "key": "sk-test", "source": "test", "model": "kimi-k2"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages/count_tokens",
                         data=json.dumps({
@@ -2269,14 +2269,14 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["body"] = json.loads(req.data.decode())
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.moonshot.ai/v1",
                                                  "key": "sk-test", "source": "test", "model": "kimi-k2"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages",
                         data=json.dumps({
@@ -2345,15 +2345,15 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             captured["body"] = json.loads(req.data.decode())
             return Upstream()
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.minimax.io/v1",
                                                  "key": "sk-test", "source": "test",
                                                  "model": "MiniMax-M3"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", side_effect=fake_open):
+                with mock.patch.object(ccscience, "_open_upstream", side_effect=fake_open):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages",
                         data=json.dumps({
@@ -2403,14 +2403,14 @@ class ThirdpartyForwarderTests(unittest.TestCase):
             def read(self, _n):
                 return self.parts.pop(0)
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience_sync.ThirdpartyForwardHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ccscience.ThirdpartyForwardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with mock.patch.object(ccscience_sync, "thirdparty_provider_details",
+            with mock.patch.object(ccscience, "thirdparty_provider_details",
                                    return_value={"base_url": "https://api.moonshot.ai/v1",
                                                  "key": "sk-test", "source": "test", "model": "kimi-k2"}):
-                with mock.patch.object(ccscience_sync, "_open_upstream", return_value=Upstream()):
+                with mock.patch.object(ccscience, "_open_upstream", return_value=Upstream()):
                     req = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_port}/v1/messages",
                         data=json.dumps({

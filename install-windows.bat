@@ -4,11 +4,11 @@ cd /d "%~dp0"
 
 where py >nul 2>nul
 if %errorlevel%==0 (
-  py -3 ccscience_sync.py install
-  py -3 ccscience_sync.py status
+  py -3 ccscience.py install
+  py -3 ccscience.py status
 ) else (
-  python ccscience_sync.py install
-  python ccscience_sync.py status
+  python ccscience.py install
+  python ccscience.py status
 )
 
 echo.

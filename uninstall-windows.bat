@@ -4,9 +4,9 @@ cd /d "%~dp0"
 
 where py >nul 2>nul
 if %errorlevel%==0 (
-  py -3 ccscience_sync.py uninstall
+  py -3 ccscience.py uninstall
 ) else (
-  python ccscience_sync.py uninstall
+  python ccscience.py uninstall
 )
 
 echo.

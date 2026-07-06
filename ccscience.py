@@ -107,7 +107,7 @@ def resource_path(name: str) -> pathlib.Path | None:
 
 def locale_candidates() -> list[str]:
     candidates: list[str] = []
-    for name in ("CCSCIENCE_SYNC_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+    for name in ("CCSCIENCE_LANG", "CCSCIENCE_SYNC_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(name)
         if value:
             candidates.append(value)

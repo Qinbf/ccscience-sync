@@ -1,94 +1,116 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="ccscience" width="112" height="112">
+
 # ccscience
 
-[English](README.md) | [中文](README.zh-CN.md)
+**Use the model you picked in CC.Switch — right inside Claude Science.**
 
-**Use the model you selected in CC.Switch inside Claude Science.**
+[English](README.md) · [中文](README.zh-CN.md)
 
-Install once. After that, switch models in CC.Switch and start a new Claude Science session. No reinstalling.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+&nbsp;![Platform](https://img.shields.io/badge/macOS%20·%20Windows-informational)
+&nbsp;[![Download](https://img.shields.io/badge/Download-Releases-brightgreen)](https://github.com/Qinbf/ccscience/releases/latest)
 
-## What It Supports
+</div>
 
-- Official Claude models: Opus, Sonnet, Haiku, and more
-- Third-party models: DeepSeek, Kimi, GLM, MiniMax, and more
-- A local no-login Claude Science mode for users with third-party API keys but no Claude account
+Switch models in CC.Switch, start a new Claude Science session — that's it.
+Install once; you never reinstall just to change models.
 
-## Install
+<div align="center">
+<img src="docs/images/user-guide-01-main.png" alt="ccscience main window" width="760">
+</div>
 
-Before installing:
+## What it does
 
-1. Open Claude Science at least once
-2. Pick your model in CC.Switch
+- ✅ **Official Claude models** — Opus, Sonnet, Haiku, and more
+- 🔌 **Third-party models** — DeepSeek, Kimi, GLM, MiniMax, and more
+- 🔓 **No Claude account? No problem** — open a local, login-free Claude Science with your own third-party API key
 
-Then download and open this app:
+## Before you start
 
-- macOS: download the latest macOS build from [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest)
-- Windows: download the latest Windows build from [GitHub Releases](https://github.com/Qinbf/ccscience-sync/releases/latest)
+You'll use ccscience alongside two other apps — get both ready first:
 
-Click **`Install / Update`**.
+- **[CC.Switch](https://github.com/SuperJJ007/CSSwitch)** — where you choose your model (official Claude, or a third-party API like DeepSeek, Kimi, GLM, MiniMax). Install it and pick a model.
+- **Claude Science** — the app ccscience patches. Just open it once so its files land on your machine.
 
-<img src="docs/images/user-guide-01-main.png" alt="ccscience main window" width="720">
+## Get started in 3 steps
 
-After installation, click **`Check Status`**. These lines mean it is ready:
+**1 · Download & open the app**
+
+Grab the latest macOS or Windows build from **[Releases](https://github.com/Qinbf/ccscience/releases/latest)**, unzip, and open it.
+
+**2 · Click `① Install / Update`, then `Check Status`**
+
+You're ready when you see:
 
 ```text
 helper: running
 runtime patch: installed
 ```
 
-Only click **`Install / Update`** again after Claude Science itself updates. Switching models does not require reinstalling.
+You only need this again after *Claude Science itself* updates — never when just switching models.
 
-## With A Claude Account
+**3 · Launch Claude Science** — pick your path below ⤵
 
-1. Pick the model in CC.Switch
+## Path A · You have a Claude account
+
+1. Pick your model in CC.Switch
 2. Click **`Open Claude Science`**
-3. Start a new session in Claude Science
+3. Start a **new** session
 
-If Claude Science asks you to sign in, sign in normally. Local links expire; click **`Open Claude Science`** again for a fresh one.
+If Claude Science asks you to sign in, sign in normally. Local links expire — click `Open Claude Science` again for a fresh one.
 
-## Without A Claude Account
+<div align="center">
+<img src="docs/images/user-guide-03-web-dashboard.png" alt="Claude Science projects" width="760">
+</div>
 
-If you have no Claude account but do have a third-party API key:
+## Path B · You don't have a Claude account
+
+Have a third-party API key but no Claude account? Use login-free mode:
 
 1. Pick a third-party model in CC.Switch
 2. Click **`Third-Party (No Login)`**
 3. Your browser opens a local Claude Science page
 
-<img src="docs/images/user-guide-03-web-dashboard.png" alt="third-party no-login page" width="720">
+It runs in an **isolated local sandbox** and never touches your real Claude login. Requests go through a local forwarder to the third-party API you chose. Keys are read from your local config or environment variables — never written into code or docs.
 
-This runs in an isolated local sandbox and does not touch your real Claude login. Requests go through the local forwarder to the selected third-party API. Secrets are read from your local config or environment variables; do not write them into code or docs.
+## Start chatting
 
-## Start Chatting
+Open or create a project, click **`New`** in the sidebar, and type your prompt. The active model shows at the bottom of the composer:
 
-Open or create a project, then click **New** in the sidebar. The bottom of the composer shows the active model:
+<div align="center">
+<img src="docs/images/user-guide-04-composer.png" alt="composer and model picker" width="560">
+</div>
 
-<img src="docs/images/user-guide-04-composer.png" alt="composer and model picker" width="520">
-
-Type your prompt and send it. If a tool permission prompt appears, allow only tools you trust.
+> **Model didn't change?** Old sessions keep their original model. Always start a **new** session after switching.
 
 ## Troubleshooting
 
-**Model did not change?** Old sessions keep their original model. Start a new session after switching models.
+<details>
+<summary><b>Common fixes</b></summary>
 
-**Page does not open?** Click **`Check Status`** and make sure the helper, forwarder, and sandbox are running. If the link expired, click the entry button again.
+- **Model didn't change** — old sessions keep their model; start a new session.
+- **Page won't open** — click `Check Status`; the helper, forwarder, and sandbox should all be running. If a link expired, click the entry button again.
+- **Runtime not found** — open Claude Science once manually, then click `Install / Update`.
+- **`Agent Failed` / `invalid params`** — update to the latest build, reopen `Third-Party (No Login)`, and test in a new session.
 
-**Runtime not found?** Open Claude Science once manually, then click **`Install / Update`**.
-
-**`Agent Failed` / `invalid params`?** Make sure you are on the latest build, reopen **`Third-Party (No Login)`**, and test in a new session.
+</details>
 
 ## Uninstall
 
 Open the app and click **`Uninstall`**.
 
-## Run From Source
+## Run from source
 
 ```sh
-git clone https://github.com/Qinbf/ccscience-sync.git ccscience
+git clone https://github.com/Qinbf/ccscience.git
 cd ccscience
-python3 ccscience_sync.py
+python3 ccscience.py
 ```
 
-On Windows, replace `python3` with `py -3`.
+On Windows, use `py -3` instead of `python3`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
