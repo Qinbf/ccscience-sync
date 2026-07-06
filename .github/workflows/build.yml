@@ -70,7 +70,20 @@ jobs:
       - name: Build macOS app
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconfirm --clean --windowed --name ccscience-sync ccscience_sync.py
+          VER=$(python -c "import ccscience_sync as m; print(m.VERSION)")
+          pyinstaller --noconfirm --clean --windowed --name ccscience-sync \
+            --osx-bundle-identifier io.github.ccscience-sync ccscience_sync.py
+          # PyInstaller stamps CFBundleShortVersionString as 0.0.0 and may omit
+          # CFBundleVersion entirely; set/add the real version so Finder
+          # "Get Info" and the app both show it. Set first, fall back to Add.
+          PLIST=dist/ccscience-sync.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VER" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VER" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VER" "$PLIST"
+          # Ad-hoc sign so the bundle is internally consistent after editing the
+          # plist. This is NOT a Developer ID signature; first-time users still
+          # right-click > Open (documented in docs/INSTALL.md).
           codesign --force --deep --sign - dist/ccscience-sync.app
           ditto -c -k --keepParent dist/ccscience-sync.app "dist/${{ matrix.artifact }}"
 

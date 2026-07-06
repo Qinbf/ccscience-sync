@@ -9,6 +9,19 @@ Download the latest release:
 
 Unzip the file, open the app, then click `Install / Update`.
 
+### First open (security warning)
+
+The apps are free and not signed with a paid Developer ID / code-signing
+certificate, so the operating system shows a one-time warning:
+
+- **macOS**: right-click the app, choose `Open`, then confirm (older macOS); or
+  `System Settings > Privacy & Security` → `Open Anyway` (macOS 15 Sequoia and
+  newer). If it says the app is "damaged", the download was quarantined — run
+  `xattr -dr com.apple.quarantine /path/to/ccscience-sync.app`, then open again.
+- **Windows**: on the SmartScreen prompt, choose `More info` → `Run anyway`.
+
+These are one-time steps, not a virus warning.
+
 Use `Open Claude Science` in the app to generate a fresh local Claude Science
 URL. This helps avoid expired one-time nonce links, but it does not bypass
 Claude account login.
